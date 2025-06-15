@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Monitor - Web Crawler</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css">
+    <style>
+        .monitor-card {
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .section-title {
+            border-left: 4px solid #0d6efd;
+            padding-left: 10px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Distributed Web Crawler</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/sessions">Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/monitor">Monitoring</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-3">
+            <div class="col">
+                <h2 class="section-title">System Monitoring</h2>
+                <p class="text-muted">Real-time statistics and monitoring of the crawler system</p>
+            </div>
+        </div>
+
+        <!-- System Overview -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card monitor-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Active Sessions</h5>
+                        <p class="stat-value" th:text="${activeSessions.size()}">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card monitor-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Sessions</h5>
+                        <p class="stat-value" th:text="${totalSessions}">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card monitor-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Queued URLs</h5>
+                        <p class="stat-value" th:text="${frontierStats.totalQueuedCount}">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card monitor-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Visited URLs</h5>
+                        <p class="stat-value" th:text="${frontierStats.visitedCount}">0</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card monitor-card">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0">URL Queue by Priority</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="queuePriorityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card monitor-card">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0">Crawler Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="crawlerStatusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Sessions -->
+        <div class="row">
+            <div class="col">
+                <div class="card monitor-card">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0">Active Crawl Sessions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Started</th>
+                                        <th>Pages Crawled</th>
+                                        <th>URLs Discovered</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr th:if="${activeSessions.empty}">
+                                        <td colspan="6" class="text-center">No active crawl sessions</td>
+                                    </tr>
+                                    <tr th:each="session : ${activeSessions}">
+                                        <td><a th:href="@{/sessions/{id}(id=${session.id})}" th:text="${session.name}">Session Name</a></td>
+                                        <td><span class="badge bg-success" th:text="${session.status}">RUNNING</span></td>
+                                        <td th:text="${#temporals.format(session.startedAt, 'yyyy-MM-dd HH:mm')}">2023-01-01</td>
+                                        <td th:text="${session.totalPagesCrawled}">0</td>
+                                        <td th:text="${session.totalUrlsDiscovered}">0</td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a th:if="${session.status == 'RUNNING'}" th:href="@{/sessions/{id}/pause(id=${session.id})}" class="btn btn-warning">Pause</a>
+                                                <a th:if="${session.status == 'PAUSED'}" th:href="@{/sessions/{id}/resume(id=${session.id})}" class="btn btn-success">Resume</a>
+                                                <a th:href="@{/sessions/{id}/stop(id=${session.id})}" class="btn btn-danger">Stop</a>
+                                                <a th:href="@{/sessions/{id}(id=${session.id})}" class="btn btn-primary">Details</a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-light text-center text-muted py-3 mt-5">
+        <div class="container">
+            <p>Distributed Web Crawler &copy; 2025</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script th:inline="javascript">
+        // Get frontier stats from Thymeleaf
+        const queueSizes = /*[[${frontierStats.queueSizes}]]*/ {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+        const processingCount = /*[[${frontierStats.processingCount}]]*/ 0;
+        const visitedCount = /*[[${frontierStats.visitedCount}]]*/ 0;
+        const queuedCount = /*[[${frontierStats.totalQueuedCount}]]*/ 0;
+
+        // Priority Queue Chart
+        const queuePriorityCtx = document.getElementById('queuePriorityChart').getContext('2d');
+        new Chart(queuePriorityCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Priority 1', 'Priority 2', 'Priority 3', 'Priority 4', 'Priority 5'],
+                datasets: [{
+                    label: 'URLs in Queue',
+                    data: [
+                        queueSizes['1'] || 0,
+                        queueSizes['2'] || 0,
+                        queueSizes['3'] || 0,
+                        queueSizes['4'] || 0,
+                        queueSizes['5'] || 0
+                    ],
+                    backgroundColor: [
+                        'rgba(54, 162, 235, 0.5)',
+                        'rgba(75, 192, 192, 0.5)',
+                        'rgba(255, 206, 86, 0.5)',
+                        'rgba(255, 159, 64, 0.5)',
+                        'rgba(255, 99, 132, 0.5)'
+                    ],
+                    borderColor: [
+                        'rgba(54, 162, 235, 1)',
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(255, 159, 64, 1)',
+                        'rgba(255, 99, 132, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Crawler Status Chart
+        const crawlerStatusCtx = document.getElementById('crawlerStatusChart').getContext('2d');
+        new Chart(crawlerStatusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Queued', 'Processing', 'Completed'],
+                datasets: [{
+                    data: [queuedCount, processingCount, visitedCount],
+                    backgroundColor: [
+                        'rgba(75, 192, 192, 0.5)',
+                        'rgba(255, 206, 86, 0.5)',
+                        'rgba(54, 162, 235, 0.5)'
+                    ],
+                    borderColor: [
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(54, 162, 235, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+
+        // Auto-refresh every 10 seconds
+        setTimeout(function() {
+            location.reload();
+        }, 10000);
+    </script>
+</body>
+</html>
+
