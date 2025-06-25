@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * Represents a crawl job to be executed by a worker
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -22,4 +25,6 @@ public class CrawlJob implements Serializable {
     private LocalDateTime updatedAt;
     private int retryCount;
     private String errorMessage;
+    private String sessionId;
+    private String processingInstance;
 }

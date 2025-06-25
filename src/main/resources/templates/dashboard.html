@@ -1,32 +1,23 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Crawler Dashboard</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <title>Distributed Web Crawler - Dashboard</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"/>
     <style>
-        .dashboard-card {
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        .stats-card {
             transition: transform 0.3s;
         }
-        .dashboard-card:hover {
+        .stats-card:hover {
             transform: translateY(-5px);
-        }
-        .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-        }
-        .section-title {
-            border-left: 4px solid #0d6efd;
-            padding-left: 10px;
         }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container-fluid">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
             <a class="navbar-brand" href="/">Distributed Web Crawler</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -34,13 +25,13 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
                     <li class="nav-item">
-                        <a class="nav-link active" href="/">Dashboard</a>
+                        <a class="nav-link active" href="/"><i class="bi bi-speedometer2"></i> Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/sessions">Sessions</a>
+                        <a class="nav-link" href="/sessions"><i class="bi bi-list-check"></i> Sessions</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/monitor">Monitoring</a>
+                        <a class="nav-link" href="/monitor"><i class="bi bi-graph-up"></i> Monitor</a>
                     </li>
                 </ul>
             </div>
@@ -48,103 +39,319 @@
     </nav>
 
     <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col">
-                <h2 class="section-title">System Overview</h2>
-            </div>
-            <div class="col text-end">
-                <a href="/sessions/new" class="btn btn-success">New Crawl Session</a>
-            </div>
-        </div>
-
-        <!-- Stats Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card dashboard-card bg-primary text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Active Sessions</h5>
-                        <p class="stat-value" th:text="${activeSessions.size()}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card dashboard-card bg-success text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Queued URLs</h5>
-                        <p class="stat-value" th:text="${frontierStats.totalQueuedCount}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card dashboard-card bg-warning text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Processing</h5>
-                        <p class="stat-value" th:text="${frontierStats.processingCount}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card dashboard-card bg-info text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Visited URLs</h5>
-                        <p class="stat-value" th:text="${frontierStats.visitedCount}">0</p>
-                    </div>
-                </div>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="bi bi-speedometer2"></i> Crawler Dashboard</h1>
+            <div>
+                <span class="badge bg-success" th:if="${systemStatus == 'RUNNING'}">System Running</span>
+                <span class="badge bg-warning" th:if="${systemStatus == 'IDLE'}">System Idle</span>
+                <span class="badge bg-danger" th:if="${systemStatus == 'ERROR'}">System Error</span>
             </div>
         </div>
 
-        <!-- Active Sessions -->
-        <div class="row mb-4">
-            <div class="col">
-                <h3 class="section-title">Active Crawl Sessions</h3>
-                <div class="table-responsive mt-3">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Name</th>
-                                <th>Status</th>
-                                <th>Started</th>
-                                <th>Pages Crawled</th>
-                                <th>URLs Discovered</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr th:if="${activeSessions.empty}">
-                                <td colspan="6" class="text-center">No active crawl sessions</td>
-                            </tr>
-                            <tr th:each="session : ${activeSessions}">
-                                <td><a th:href="@{/sessions/{id}(id=${session.id})}" th:text="${session.name}">Session Name</a></td>
-                                <td><span class="badge bg-success" th:text="${session.status}">RUNNING</span></td>
-                                <td th:text="${#temporals.format(session.startedAt, 'yyyy-MM-dd HH:mm')}">2023-01-01</td>
-                                <td th:text="${session.totalPagesCrawled}">0</td>
-                                <td th:text="${session.totalUrlsDiscovered}">0</td>
-                                <td>
-                                    <a th:if="${session.status == 'RUNNING'}" th:href="@{/sessions/{id}/pause(id=${session.id})}" class="btn btn-sm btn-warning">Pause</a>
-                                    <a th:if="${session.status == 'PAUSED'}" th:href="@{/sessions/{id}/resume(id=${session.id})}" class="btn btn-sm btn-success">Resume</a>
-                                    <a th:href="@{/sessions/{id}/stop(id=${session.id})}" class="btn btn-sm btn-danger">Stop</a>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-diagram-3"></i> URL Frontier Statistics
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col">
+                                <div class="card text-white bg-primary stats-card">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Queued</h5>
+                                        <h2 data-stat="queuedUrls" th:text="${stats.queuedUrls}">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card text-white bg-warning stats-card">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Processing</h5>
+                                        <h2 data-stat="processingUrls" th:text="${stats.processingUrls}">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col">
+                                <div class="card text-white bg-success stats-card">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Completed</h5>
+                                        <h2 data-stat="completedUrls" th:text="${stats.completedUrls}">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card text-white bg-danger stats-card">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Failed</h5>
+                                        <h2 data-stat="failedUrls" th:text="${stats.failedUrls}">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <i class="bi bi-graph-up"></i> Performance Metrics
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Completion Percentage</label>
+                            <div class="progress">
+                                <div class="progress-bar bg-info" role="progressbar"
+                                     data-progress="completion"
+                                     th:style="'width: ' + ${stats.completionPercentage} + '%'"
+                                     th:text="${#numbers.formatDecimal(stats.completionPercentage, 1, 2)} + '%'">
+                                    0%
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Failure Rate</label>
+                            <div class="progress">
+                                <div class="progress-bar bg-warning" role="progressbar"
+                                     data-progress="failure"
+                                     th:style="'width: ' + ${stats.failureRate} + '%'"
+                                     th:text="${#numbers.formatDecimal(stats.failureRate, 1, 2)} + '%'">
+                                    0%
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Total URLs</label>
+                            <div class="alert alert-info">
+                                <strong data-stat="totalUrls" th:text="${stats.totalUrls}">0</strong> URLs in system
+                            </div>
+                        </div>
+                        <div>
+                            <label class="form-label">Last Updated</label>
+                            <div class="alert alert-secondary">
+                                <span data-stat="timestamp" th:if="${stats.timestamp != null}" th:text="${#temporals.format(stats.timestamp, 'dd-MM-yyyy HH:mm:ss')}">01-01-2025 12:00:00</span>
+                                <span th:if="${stats.timestamp == null}">Not available</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <i class="bi bi-search"></i> Quick Crawl
+                    </div>
+                    <div class="card-body">
+                        <form th:action="@{/crawl/start}" method="POST">
+                            <!-- CSRF token for Spring Security -->
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" th:if="${_csrf}" />
+                            <div class="mb-3">
+                                <label for="seedUrl" class="form-label">Seed URL</label>
+                                <input type="url" class="form-control" id="seedUrl" name="seedUrl"
+                                       placeholder="https://example.com/" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="maxDepth" class="form-label">Max Depth</label>
+                                <select class="form-select" id="maxDepth" name="maxDepth">
+                                    <option value="1">1 - Only seed URL</option>
+                                    <option value="2">2 - Seed URL + direct links</option>
+                                    <option value="3" selected>3 - Two levels deep</option>
+                                    <option value="5">5 - Medium depth</option>
+                                    <option value="10">10 - Deep crawl</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="respectRobotsTxt"
+                                           name="respectRobotsTxt" checked>
+                                    <label class="form-check-label" for="respectRobotsTxt">
+                                        Respect robots.txt
+                                    </label>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="sameDomainOnly"
+                                           name="sameDomainOnly" checked>
+                                    <label class="form-check-label" for="sameDomainOnly">
+                                        Only crawl links with same domain as seed URL
+                                    </label>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-play-fill"></i> Start Crawling
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <i class="bi bi-globe"></i> Domain Statistics
+                    </div>
+                    <div class="card-body">
+                        <div id="noDomainStatsMessage" th:if="${domainStats == null || (domainStats != null && domainStats.empty)}" class="text-center text-muted">
+                            <p>No domain statistics available yet</p>
+                        </div>
+                        <table id="domainStatsTable" th:if="${domainStats != null && !domainStats.empty}" class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Pages</th>
+                                    <th>Avg. Size</th>
+                                    <th>Last Crawled</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr th:each="domain : ${domainStats}">
+                                    <td th:text="${domain.name}">example.com</td>
+                                    <td th:text="${domain.pageCount}">0</td>
+                                    <td th:text="${domain.averagePageSize} + ' KB'">0 KB</td>
+                                    <td th:text="${#temporals.format(domain.lastCrawled, 'dd-MM-yyyy HH:mm')}">01-01-2025</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <footer class="bg-light text-center text-muted py-3 mt-5">
+    <footer class="mt-5 py-3 bg-dark text-white text-center">
         <div class="container">
-            <p>Distributed Web Crawler &copy; 2025</p>
+            <p>Distributed Web Crawler &copy; 2025 | Version 1.0</p>
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Auto-refresh the page every 10 seconds
-        setTimeout(function() {
-            location.reload();
-        }, 10000);
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script th:inline="javascript">
+        const refreshInterval = 10000; // 10 seconds
+        let refreshEnabled = true;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initial data load
+            fetchFrontierStats();
+            fetchDomainStats();
+
+            // Set up periodic refresh
+            setInterval(function() {
+                if(refreshEnabled) {
+                    fetchFrontierStats();
+                    fetchDomainStats();
+                }
+            }, refreshInterval);
+        });
+
+        // Helper function to get CSRF token if available
+        function getCsrfToken() {
+            const csrfTokenMeta = document.querySelector('meta[name="_csrf"]');
+            if (csrfTokenMeta) {
+                return csrfTokenMeta.getAttribute('content');
+            }
+            return null;
+        }
+
+        function getCsrfHeader() {
+            const csrfHeaderMeta = document.querySelector('meta[name="_csrf_header"]');
+            if (csrfHeaderMeta) {
+                return csrfHeaderMeta.getAttribute('content');
+            }
+            return 'X-CSRF-TOKEN';
+        }
+
+        // Fetch frontier statistics
+        function fetchFrontierStats() {
+            fetch('/api/dashboard/stats')
+                .then(response => response.json())
+                .then(stats => {
+                    // Update URL frontier stats
+                    document.querySelector('[data-stat="queuedUrls"]').textContent = stats.queuedUrls;
+                    document.querySelector('[data-stat="processingUrls"]').textContent = stats.processingUrls;
+                    document.querySelector('[data-stat="completedUrls"]').textContent = stats.completedUrls;
+                    document.querySelector('[data-stat="failedUrls"]').textContent = stats.failedUrls;
+
+                    // Update progress bars
+                    const completionProgressBar = document.querySelector('[data-progress="completion"]');
+                    completionProgressBar.style.width = `${stats.completionPercentage}%`;
+                    completionProgressBar.textContent = `${stats.completionPercentage}%`;
+
+                    const failureProgressBar = document.querySelector('[data-progress="failure"]');
+                    failureProgressBar.style.width = `${stats.failureRate}%`;
+                    failureProgressBar.textContent = `${stats.failureRate}%`;
+
+                    // Update total URLs
+                    document.querySelector('[data-stat="totalUrls"]').textContent = stats.totalUrls;
+
+                    // Update system status badge
+                    updateSystemStatus(stats.systemStatus);
+
+                    // Update last updated timestamp
+                    if (stats.timestamp) {
+                        const timestamp = new Date(stats.timestamp).toLocaleString();
+                        document.querySelector('[data-stat="timestamp"]').textContent = timestamp;
+                    }
+                })
+                .catch(error => console.error('Error fetching frontier stats:', error));
+        }
+
+        // Fetch domain statistics
+        function fetchDomainStats() {
+            fetch('/api/dashboard/domains')
+                .then(response => response.json())
+                .then(domains => {
+                    const tableBody = document.querySelector('#domainStatsTable');
+                    if (!tableBody) return;
+
+                    // Clear existing rows
+                    tableBody.innerHTML = '';
+
+                    if (domains.length === 0) {
+                        document.querySelector('#noDomainStatsMessage').style.display = 'block';
+                        document.querySelector('#domainStatsTable').style.display = 'none';
+                    } else {
+                        document.querySelector('#noDomainStatsMessage').style.display = 'none';
+                        document.querySelector('#domainStatsTable').style.display = 'table';
+
+                        domains.forEach(domain => {
+                            const row = document.createElement('tr');
+                            const lastCrawled = domain.lastCrawled ? new Date(domain.lastCrawled).toLocaleString() : 'N/A';
+
+                            row.innerHTML = `
+                                <td>${domain.name}</td>
+                                <td>${domain.pageCount}</td>
+                                <td>${domain.averagePageSize} KB</td>
+                                <td>${lastCrawled}</td>
+                            `;
+                            tableBody.appendChild(row);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error fetching domain stats:', error));
+        }
+
+        // Update system status badge
+        function updateSystemStatus(status) {
+            const statusElement = document.querySelector('#systemStatus');
+            if (!statusElement) return;
+
+            // Remove existing classes
+            statusElement.classList.remove('bg-success', 'bg-warning', 'bg-danger');
+
+            // Set new class and text based on status
+            switch(status) {
+                case 'RUNNING':
+                    statusElement.classList.add('bg-success');
+                    statusElement.textContent = 'System Running';
+                    break;
+                case 'IDLE':
+                    statusElement.classList.add('bg-warning');
+                    statusElement.textContent = 'System Idle';
+                    break;
+                default:
+                    statusElement.classList.add('bg-danger');
+                    statusElement.textContent = 'System Error';
+            }
+        }
     </script>
 </body>
 </html>
-

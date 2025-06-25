@@ -10,7 +10,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/crawler")
@@ -43,64 +47,96 @@ public class CrawlerController {
         List<CrawlSession> sessions;
 
         if (activeOnly) {
-            sessions = crawlerManager.getActiveCrawlSessions();
+            sessions = crawlerManager.getActiveSessions();
         } else {
-            sessions = crawlerManager.getAllCrawlSessions();
+            sessions = crawlerManager.getAllSessions();
         }
 
         return ResponseEntity.ok(sessions);
     }
 
     /**
-     * Get session by ID
+     * Get a specific crawl session
      */
-    @GetMapping("/sessions/{sessionId}")
-    public ResponseEntity<CrawlSession> getSession(@PathVariable String sessionId) {
+    @GetMapping("/sessions/{id}")
+    public ResponseEntity<CrawlSession> getSession(@PathVariable("id") String sessionId) {
         log.info("Request to get crawl session: {}", sessionId);
-        return crawlerManager.getCrawlSession(sessionId)
+        Optional<CrawlSession> session = crawlerManager.getSession(sessionId);
+        return session
                 .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    /**
-     * Pause a crawl session
-     */
-    @PostMapping("/sessions/{sessionId}/pause")
-    public ResponseEntity<CrawlSession> pauseSession(@PathVariable String sessionId) {
-        log.info("Request to pause crawl session: {}", sessionId);
-        return crawlerManager.getCrawlSession(sessionId)
-                .map(session -> ResponseEntity.ok(crawlerManager.pauseCrawlSession(sessionId)))
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    /**
-     * Resume a paused crawl session
-     */
-    @PostMapping("/sessions/{sessionId}/resume")
-    public ResponseEntity<CrawlSession> resumeSession(@PathVariable String sessionId) {
-        log.info("Request to resume crawl session: {}", sessionId);
-        return crawlerManager.getCrawlSession(sessionId)
-                .map(session -> ResponseEntity.ok(crawlerManager.resumeCrawlSession(sessionId)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     /**
      * Stop a crawl session
      */
-    @PostMapping("/sessions/{sessionId}/stop")
-    public ResponseEntity<CrawlSession> stopSession(@PathVariable String sessionId) {
+    @PostMapping("/sessions/{id}/stop")
+    public ResponseEntity<CrawlSession> stopCrawlSession(@PathVariable("id") String sessionId) {
         log.info("Request to stop crawl session: {}", sessionId);
-        return crawlerManager.getCrawlSession(sessionId)
-                .map(session -> ResponseEntity.ok(crawlerManager.stopCrawlSession(sessionId)))
-                .orElse(ResponseEntity.notFound().build());
+        CrawlSession stoppedSession = crawlerManager.stopCrawlSession(sessionId);
+
+        if (stoppedSession == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(stoppedSession);
     }
 
     /**
-     * Get frontier statistics
+     * Get stats for a specific crawl session
      */
-    @GetMapping("/frontier/stats")
-    public ResponseEntity<FrontierStats> getFrontierStats() {
-        log.info("Request to get frontier statistics");
-        return ResponseEntity.ok(urlFrontier.getStats());
+    @GetMapping("/sessions/{id}/stats")
+    public ResponseEntity<Map<String, Object>> getSessionStats(@PathVariable("id") String sessionId) {
+        log.info("Request to get stats for crawl session: {}", sessionId);
+        Map<String, Long> sessionStats = crawlerManager.getSessionStats(sessionId);
+
+        if (sessionStats.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // Get overall frontier stats
+        FrontierStats frontierStats = urlFrontier.getStats();
+
+        // Combine stats
+        Map<String, Object> combinedStats = new HashMap<>();
+        combinedStats.put("session", sessionStats);
+        combinedStats.put("frontier", frontierStats);
+
+        return ResponseEntity.ok(combinedStats);
+    }
+
+    /**
+     * Get overall stats for the crawler
+     */
+    @GetMapping("/stats")
+    public ResponseEntity<FrontierStats> getCrawlerStats() {
+        log.info("Request to get overall crawler stats");
+        FrontierStats stats = urlFrontier.getStats();
+        return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * Quick crawl form handler - processes form submission from the dashboard
+     */
+    @PostMapping("/crawl/start")
+    public String startQuickCrawl(
+            @RequestParam("seedUrl") String seedUrl,
+            @RequestParam("maxDepth") int maxDepth,
+            @RequestParam(value = "respectRobotsTxt", defaultValue = "true") boolean respectRobotsTxt) {
+
+        log.info("Quick crawl request received for URL: {}, maxDepth: {}, respectRobotsTxt: {}",
+                seedUrl, maxDepth, respectRobotsTxt);
+
+        CrawlSession session = CrawlSession.builder()
+                .name("Quick Crawl: " + seedUrl)
+                .seedUrls(Set.of(seedUrl))
+                .maxDepth(maxDepth)
+                .respectRobotsTxt(respectRobotsTxt)
+                .build();
+
+        crawlerManager.startCrawlSession(session);
+
+        // Redirect back to dashboard
+        return "redirect:/";
     }
 }

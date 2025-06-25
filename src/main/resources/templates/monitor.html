@@ -1,36 +1,46 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Monitor - Web Crawler</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css">
+    <title>Distributed Web Crawler - Monitor</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"/>
     <style>
-        .monitor-card {
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
+        .activity-log {
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            background-color: #f8f9fa;
+            padding: 10px;
         }
-        .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
+        .log-entry {
+            margin: 0;
+            padding: 2px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .log-info {
             color: #0d6efd;
         }
-        .section-title {
-            border-left: 4px solid #0d6efd;
-            padding-left: 10px;
+        .log-warning {
+            color: #fd7e14;
+        }
+        .log-error {
+            color: #dc3545;
+        }
+        .log-success {
+            color: #198754;
         }
         .chart-container {
             position: relative;
             height: 300px;
-            margin-bottom: 20px;
+            width: 100%;
         }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container-fluid">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
             <a class="navbar-brand" href="/">Distributed Web Crawler</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -38,13 +48,13 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
                     <li class="nav-item">
-                        <a class="nav-link" href="/">Dashboard</a>
+                        <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/sessions">Sessions</a>
+                        <a class="nav-link" href="/sessions"><i class="bi bi-list-check"></i> Sessions</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" href="/monitor">Monitoring</a>
+                        <a class="nav-link active" href="/monitor"><i class="bi bi-graph-up"></i> Monitor</a>
                     </li>
                 </ul>
             </div>
@@ -52,220 +62,408 @@
     </nav>
 
     <div class="container mt-4">
-        <div class="row mb-3">
-            <div class="col">
-                <h2 class="section-title">System Monitoring</h2>
-                <p class="text-muted">Real-time statistics and monitoring of the crawler system</p>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="bi bi-graph-up"></i> Crawler Monitor</h1>
+            <div>
+                <span class="badge bg-success" id="connectionStatus">Connected</span>
+                <button class="btn btn-sm btn-outline-secondary" id="toggleAutoRefresh">
+                    <i class="bi bi-arrow-clockwise"></i> Auto-Refresh On
+                </button>
             </div>
         </div>
 
-        <!-- System Overview -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card monitor-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Active Sessions</h5>
-                        <p class="stat-value" th:text="${activeSessions.size()}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card monitor-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Total Sessions</h5>
-                        <p class="stat-value" th:text="${totalSessions}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card monitor-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Queued URLs</h5>
-                        <p class="stat-value" th:text="${frontierStats.totalQueuedCount}">0</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card monitor-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Visited URLs</h5>
-                        <p class="stat-value" th:text="${frontierStats.visitedCount}">0</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Charts -->
         <div class="row mb-4">
             <div class="col-md-6">
-                <div class="card monitor-card">
-                    <div class="card-header bg-light">
-                        <h5 class="card-title mb-0">URL Queue by Priority</h5>
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-graph-up-arrow"></i> Crawl Performance
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
-                            <canvas id="queuePriorityChart"></canvas>
+                            <canvas id="performanceChart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="col-md-6">
-                <div class="card monitor-card">
-                    <div class="card-header bg-light">
-                        <h5 class="card-title mb-0">Crawler Status</h5>
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <i class="bi bi-pie-chart"></i> URL Status Distribution
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
-                            <canvas id="crawlerStatusChart"></canvas>
+                            <canvas id="statusChart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Active Sessions -->
-        <div class="row">
-            <div class="col">
-                <div class="card monitor-card">
-                    <div class="card-header bg-light">
-                        <h5 class="card-title mb-0">Active Crawl Sessions</h5>
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card h-100">
+                    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-activity"></i> Crawler Activity Log
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-light" id="clearLog">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Status</th>
-                                        <th>Started</th>
-                                        <th>Pages Crawled</th>
-                                        <th>URLs Discovered</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr th:if="${activeSessions.empty}">
-                                        <td colspan="6" class="text-center">No active crawl sessions</td>
-                                    </tr>
-                                    <tr th:each="session : ${activeSessions}">
-                                        <td><a th:href="@{/sessions/{id}(id=${session.id})}" th:text="${session.name}">Session Name</a></td>
-                                        <td><span class="badge bg-success" th:text="${session.status}">RUNNING</span></td>
-                                        <td th:text="${#temporals.format(session.startedAt, 'yyyy-MM-dd HH:mm')}">2023-01-01</td>
-                                        <td th:text="${session.totalPagesCrawled}">0</td>
-                                        <td th:text="${session.totalUrlsDiscovered}">0</td>
-                                        <td>
-                                            <div class="btn-group btn-group-sm">
-                                                <a th:if="${session.status == 'RUNNING'}" th:href="@{/sessions/{id}/pause(id=${session.id})}" class="btn btn-warning">Pause</a>
-                                                <a th:if="${session.status == 'PAUSED'}" th:href="@{/sessions/{id}/resume(id=${session.id})}" class="btn btn-success">Resume</a>
-                                                <a th:href="@{/sessions/{id}/stop(id=${session.id})}" class="btn btn-danger">Stop</a>
-                                                <a th:href="@{/sessions/{id}(id=${session.id})}" class="btn btn-primary">Details</a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <div class="card-body p-0">
+                        <div id="activityLog" class="activity-log">
+                            <!-- log entries prints -->
                         </div>
                     </div>
                 </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-header bg-warning text-white">
+                        <i class="bi bi-cpu"></i> System Resources
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4">
+                            <label class="form-label d-flex justify-content-between">
+                                <span>CPU Usage</span>
+                                <span id="cpuUsage">0%</span>
+                            </label>
+                            <div class="progress mb-3">
+                                <div class="progress-bar bg-warning" role="progressbar"
+                                     id="cpuProgressBar" style="width: 0%"></div>
+                            </div>
+
+                            <label class="form-label d-flex justify-content-between">
+                                <span>Memory Usage</span>
+                                <span id="memoryUsage">0 MB / 0 MB</span>
+                            </label>
+                            <div class="progress mb-3">
+                                <div class="progress-bar bg-danger" role="progressbar"
+                                     id="memoryProgressBar" style="width: 0%"></div>
+                            </div>
+
+                            <label class="form-label d-flex justify-content-between">
+                                <span>Network I/O</span>
+                                <span id="networkUsage">0 KB/s</span>
+                            </label>
+                            <div class="progress">
+                                <div class="progress-bar bg-primary" role="progressbar"
+                                     id="networkProgressBar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-light">
+                            <div class="card-body p-3">
+                                <h6 class="card-title">Workers</h6>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>Active Workers</div>
+                                    <div><span id="activeWorkers" class="badge bg-success">0</span></div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <div>Worker Utilization</div>
+                                    <div><span id="workerUtilization">0%</span></div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <div>Kafka Partitions</div>
+                                    <div><span id="kafkaPartitions" class="badge bg-primary">0</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <i class="bi bi-table"></i> Recently Crawled URLs
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Status</th>
+                            <th>Size</th>
+                            <th>Links</th>
+                            <th>Time</th>
+                            <th>Worker</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentUrlsTable">
+                        <!-- Recently crawled URLs  -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
-    <footer class="bg-light text-center text-muted py-3 mt-5">
+    <footer class="mt-5 py-3 bg-dark text-white text-center">
         <div class="container">
-            <p>Distributed Web Crawler &copy; 2025</p>
+            <p>Distributed Web Crawler &copy; 2025 | Version 1.0</p>
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
     <script th:inline="javascript">
-        // Get frontier stats from Thymeleaf
-        const queueSizes = /*[[${frontierStats.queueSizes}]]*/ {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
-        const processingCount = /*[[${frontierStats.processingCount}]]*/ 0;
-        const visitedCount = /*[[${frontierStats.visitedCount}]]*/ 0;
-        const queuedCount = /*[[${frontierStats.totalQueuedCount}]]*/ 0;
+        let refreshEnabled = true;
+        let performanceData = {
+            labels: [],
+            datasets: [
+                {
+                    label: 'URLs crawled per minute',
+                    data: [],
+                    borderColor: '#0d6efd',
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'Failed URLs per minute',
+                    data: [],
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        };
 
-        // Priority Queue Chart
-        const queuePriorityCtx = document.getElementById('queuePriorityChart').getContext('2d');
-        new Chart(queuePriorityCtx, {
-            type: 'bar',
-            data: {
-                labels: ['Priority 1', 'Priority 2', 'Priority 3', 'Priority 4', 'Priority 5'],
-                datasets: [{
-                    label: 'URLs in Queue',
-                    data: [
-                        queueSizes['1'] || 0,
-                        queueSizes['2'] || 0,
-                        queueSizes['3'] || 0,
-                        queueSizes['4'] || 0,
-                        queueSizes['5'] || 0
-                    ],
-                    backgroundColor: [
-                        'rgba(54, 162, 235, 0.5)',
-                        'rgba(75, 192, 192, 0.5)',
-                        'rgba(255, 206, 86, 0.5)',
-                        'rgba(255, 159, 64, 0.5)',
-                        'rgba(255, 99, 132, 0.5)'
-                    ],
-                    borderColor: [
-                        'rgba(54, 162, 235, 1)',
-                        'rgba(75, 192, 192, 1)',
-                        'rgba(255, 206, 86, 1)',
-                        'rgba(255, 159, 64, 1)',
-                        'rgba(255, 99, 132, 1)'
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true
+        let statusData = {
+            labels: ['Completed', 'Processing', 'Queued', 'Failed', 'Skipped'],
+            datasets: [{
+                data: [],
+                backgroundColor: [
+                    '#198754',
+                    '#0d6efd',
+                    '#6c757d',
+                    '#dc3545',
+                    '#ffc107'
+                ]
+            }]
+        };
+
+        // Helper function to get CSRF token if available
+        function getCsrfToken() {
+            const csrfTokenMeta = document.querySelector('meta[name="_csrf"]');
+            if (csrfTokenMeta) {
+                return csrfTokenMeta.getAttribute('content');
+            }
+            return null;
+        }
+
+        function getCsrfHeader() {
+            const csrfHeaderMeta = document.querySelector('meta[name="_csrf_header"]');
+            if (csrfHeaderMeta) {
+                return csrfHeaderMeta.getAttribute('content');
+            }
+            return 'X-CSRF-TOKEN';
+        }
+
+        // Initialize charts and fetch real log data
+        document.addEventListener('DOMContentLoaded', function() {
+            // Performance chart
+            const perfCtx = document.getElementById('performanceChart').getContext('2d');
+            const performanceChart = new Chart(perfCtx, {
+                type: 'line',
+                data: performanceData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        // Crawler Status Chart
-        const crawlerStatusCtx = document.getElementById('crawlerStatusChart').getContext('2d');
-        new Chart(crawlerStatusCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Queued', 'Processing', 'Completed'],
-                datasets: [{
-                    data: [queuedCount, processingCount, visitedCount],
-                    backgroundColor: [
-                        'rgba(75, 192, 192, 0.5)',
-                        'rgba(255, 206, 86, 0.5)',
-                        'rgba(54, 162, 235, 0.5)'
-                    ],
-                    borderColor: [
-                        'rgba(75, 192, 192, 1)',
-                        'rgba(255, 206, 86, 1)',
-                        'rgba(54, 162, 235, 1)'
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
+            // Status chart
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            const statusChart = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: statusData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
                 }
-            }
+            });
+
+            // Toggle auto-refresh
+            document.getElementById('toggleAutoRefresh').addEventListener('click', function() {
+                refreshEnabled = !refreshEnabled;
+                this.innerHTML = refreshEnabled
+                    ? '<i class="bi bi-arrow-clockwise"></i> Auto-Refresh On'
+                    : '<i class="bi bi-pause"></i> Auto-Refresh Off';
+            });
+
+            // Clear log
+            document.getElementById('clearLog').addEventListener('click', function() {
+                document.getElementById('activityLog').innerHTML = '';
+            });
+
+            // Fetch initial log data
+            fetchLogEntries();
+            // Fetch initial chart and table data
+            fetchPerformanceData();
+            fetchStatusData();
+            fetchRecentUrls();
+            fetchResourceMetrics();
+            // Setup refresh intervals
+            setInterval(function() {
+                if(refreshEnabled) {
+                    fetchLogEntries();
+                }
+            }, 5000); // Fetch logs every 5 seconds
+            setInterval(function() {
+                if(refreshEnabled) {
+                    fetchResourceMetrics();
+                }
+            }, 2000);
+            setInterval(function() {
+                if(refreshEnabled) {
+                    fetchPerformanceData();
+                    fetchStatusData();
+                    fetchRecentUrls();
+                }
+            }, 5000);
         });
 
-        // Auto-refresh every 10 seconds
-        setTimeout(function() {
-            location.reload();
-        }, 10000);
+        // Fetch real log entries from the server
+        function fetchLogEntries() {
+            const headers = {};
+            const csrfToken = getCsrfToken();
+            if (csrfToken) {
+                headers[getCsrfHeader()] = csrfToken;
+            }
+
+            fetch('/api/monitor/logs?lines=50', {
+                method: 'GET',
+                headers: headers
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Clear the current log
+                const logContainer = document.getElementById('activityLog');
+                logContainer.innerHTML = '';
+
+                // Add the real log entries
+                data.forEach(entry => {
+                    let type = 'info';
+                    if (entry.level === 'ERROR') type = 'error';
+                    else if (entry.level === 'WARNING') type = 'warning';
+                    else if (entry.level === 'DEBUG') type = 'info';
+                    else if (entry.message.includes('Successfully') ||
+                             entry.message.includes('Added') ||
+                             entry.message.includes('Connected')) {
+                        type = 'success';
+                    }
+
+                    // Remove class name or technical prefix from log message
+                    let msg = entry.message;
+                    // Remove Java class name prefix if present (e.g. com.ouroboros.webcrawler.SomeClass - )
+                    msg = msg.replace(/^[\w.$]+\s*-\s*/,'');
+                    // Optionally, remove stack trace lines or other technical details
+                    msg = msg.replace(/\bat\s+[\w.$]+\(.+\)/g, '');
+
+                    const logEntry = document.createElement('p');
+                    logEntry.className = `log-entry log-${type}`;
+                    logEntry.innerHTML = `[${entry.timestamp}] ${msg}`;
+                    logContainer.appendChild(logEntry);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching logs:', error);
+                addLogEntry('Error fetching logs: ' + error.message, 'error');
+            });
+        }
+
+        // Add a log entry (used for errors or manual entries)
+        function addLogEntry(message, type) {
+            const log = document.getElementById('activityLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('p');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `[${timestamp}] ${message}`;
+            log.insertBefore(entry, log.firstChild);
+
+            // Limit log entries to prevent excessive DOM size
+            if(log.children.length > 100) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        // Fetch performance chart data from backend
+        function fetchPerformanceData() {
+            fetch('/api/monitor/performance')
+                .then(res => res.json())
+                .then(data => {
+                    performanceData.labels = data.labels;
+                    performanceData.datasets[0].data = data.crawled;
+                    performanceData.datasets[1].data = data.failed;
+                    const perfChart = Chart.getChart('performanceChart');
+                    if (perfChart) perfChart.update();
+                });
+        }
+        // Fetch status chart data from backend
+        function fetchStatusData() {
+            fetch('/api/monitor/status')
+                .then(res => res.json())
+                .then(data => {
+                    statusData.datasets[0].data = data;
+                    const statusChart = Chart.getChart('statusChart');
+                    if (statusChart) statusChart.update();
+                });
+        }
+        // Fetch recently crawled URLs from backend
+        function fetchRecentUrls() {
+            fetch('/api/monitor/recent-urls')
+                .then(res => res.json())
+                .then(urls => {
+                    const table = document.getElementById('recentUrlsTable');
+                    table.innerHTML = '';
+                    urls.forEach(u => {
+                        let statusBadgeClass = 'bg-success';
+                        if(u.status >= 400 && u.status < 500) statusBadgeClass = 'bg-warning';
+                        else if(u.status >= 500) statusBadgeClass = 'bg-danger';
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><a href="${u.url}" target="_blank">${u.url}</a></td>
+                            <td><span class="badge ${statusBadgeClass}">${u.status}</span></td>
+                            <td>${u.size}</td>
+                            <td>${u.links}</td>
+                            <td>${u.time}</td>
+                            <td>${u.worker}</td>
+                        `;
+                        table.appendChild(row);
+                    });
+                });
+        }
+        // Fetch resource metrics from backend
+        function fetchResourceMetrics() {
+            fetch('/api/monitor/resources')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('cpuUsage').textContent = `${data.cpu}%`;
+                    document.getElementById('cpuProgressBar').style.width = `${data.cpu}%`;
+                    document.getElementById('memoryUsage').textContent = `${data.memoryUsed} MB / ${data.memoryTotal} MB`;
+                    document.getElementById('memoryProgressBar').style.width = `${Math.floor((data.memoryUsed/data.memoryTotal)*100)}%`;
+                    document.getElementById('networkUsage').textContent = `${data.network} KB/s`;
+                    document.getElementById('networkProgressBar').style.width = `${Math.min(100, Math.floor((data.network/1000)*100))}%`;
+                    document.getElementById('activeWorkers').textContent = data.activeWorkers;
+                    document.getElementById('workerUtilization').textContent = `${data.workerUtilization}%`;
+                    document.getElementById('kafkaPartitions').textContent = data.kafkaPartitions;
+                });
+        }
+
     </script>
 </body>
 </html>
-

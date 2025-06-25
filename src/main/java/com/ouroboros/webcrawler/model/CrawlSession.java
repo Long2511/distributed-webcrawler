@@ -6,33 +6,44 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Represents a crawl session with specific configuration and targets
+ * Model representing a crawl session with specific configuration and targets
+ * Used for API interactions
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class CrawlSession {
-    private String id;
 
+    private String id;
     private String name;
     private String description;
-    private Set<String> seedUrls;
+    private Set<String> seedUrls = new HashSet<>();
     private int maxDepth;
     private int maxPagesPerDomain;
     private boolean respectRobotsTxt;
+    private boolean sameDomainOnly; // Added new field for restricting crawling to the same domain
     private Map<String, String> customHeaders;
-    private int crawlDelay;
-    private String status; // CREATED, RUNNING, PAUSED, COMPLETED, FAILED
+    private String status; // RUNNING, COMPLETED, STOPPED, FAILED
     private LocalDateTime createdAt;
-    private LocalDateTime startedAt;
+    private LocalDateTime updatedAt;
     private LocalDateTime completedAt;
-    private long totalPagesCrawled;
-    private long totalUrlsDiscovered;
-    private Set<String> allowedDomains; // null means all domains are allowed
-    private Set<String> urlPatterns; // patterns to include/exclude
+    private Set<String> includePatterns;
+    private Set<String> excludePatterns;
+    private int progress; // Progress percentage (0-100)
+
+    /**
+     * Add a seed URL to the crawl session
+     */
+    public void addSeedUrl(String url) {
+        if (seedUrls == null) {
+            seedUrls = new HashSet<>();
+        }
+        seedUrls.add(url);
+    }
 }

@@ -229,9 +229,9 @@ This document outlines the architecture for a distributed web crawler system wit
 
 ### Backend
 - **Language**: Java
-- **Frameworks**: Spring Boot, Akka
-- **Storage**: MongoDB/Cassandra, HDFS/S3
-- **Messaging**: Kafka/RabbitMQ
+- **Frameworks**: Spring Boot, 
+- **Storage**: MongoDB, HDFS/S3
+- **Messaging**: Kafka, Redis
 - **Coordination**: ZooKeeper/Consul
 
 ### Frontend
@@ -242,8 +242,7 @@ This document outlines the architecture for a distributed web crawler system wit
 
 ### DevOps
 - **Containerization**: Docker
-- **Orchestration**: Kubernetes
-- **CI/CD**: Jenkins/GitHub Actions
+- **CI/CD**: GitHub Actions
 - **Monitoring**: Prometheus/Grafana
 
 ## Implementation Phases

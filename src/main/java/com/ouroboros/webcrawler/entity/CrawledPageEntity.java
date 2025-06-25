@@ -1,22 +1,24 @@
 package com.ouroboros.webcrawler.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
+import org.springframework.data.mongodb.core.mapping.Document;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * Entity representing a crawled web page stored in PostgreSQL
+ * Document representing a crawled web page stored in MongoDB
  */
-@Entity
-@Table(name = "crawled_pages", indexes = {
-    @Index(name = "url_idx", columnList = "url", unique = true)
-})
+@Document(collection = "crawledPages")
 @Data
 @Builder
 @NoArgsConstructor
@@ -24,44 +26,36 @@ import java.util.Set;
 public class CrawledPageEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private String id;
 
-    @Column(nullable = false, length = 2048)
+    @Indexed(unique = true)
     private String url;
 
-    @Column(length = 1024)
     private String title;
 
-    @Column(columnDefinition = "TEXT")
     private String content;
 
-    @ElementCollection
-    @CollectionTable(name = "page_outgoing_links", joinColumns = @JoinColumn(name = "page_id"))
-    @Column(name = "link", length = 2048)
     private Set<String> outgoingLinks = new HashSet<>();
 
-    @Column
     private int statusCode;
 
-    @Column(length = 255)
     private String contentType;
 
-    @Column
     private long contentLength;
 
-    @Column(nullable = false)
     private LocalDateTime crawlTimestamp;
 
-    @Column
-    private LocalDateTime lastModified;
-
-    @Column
     private int crawlDepth;
 
-    @Column(length = 255)
+    @Indexed
     private String domain;
 
-    @Column
     private boolean parsed;
+
+    private String errorMessage;
+
+    @Indexed
+    private String sessionId;
+
+    private Map<String, String> metaInfo = new HashMap<>();
 }
