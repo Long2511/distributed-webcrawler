@@ -1,55 +1,39 @@
 package com.ouroboros.webcrawler.entity;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
 
-/**
- * Document representing a crawl session with specific configuration and targets
- */
-@Document(collection = "crawlSessions")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Document(collection = "crawl_sessions")
 public class CrawlSessionEntity {
 
     @Id
     private String id;
-
     private String name;
-
-    private String description;
-
-    private Set<String> seedUrls = new HashSet<>();
-
+    private List<String> seedUrls;
+    private String status; // PENDING, RUNNING, COMPLETED, FAILED, STOPPED
     private int maxDepth;
-
-    private int maxPagesPerDomain;
-
-    private boolean respectRobotsTxt;
-
-    private Map<String, String> customHeaders = new HashMap<>();
-
-    private String status; // RUNNING, COMPLETED, STOPPED, FAILED
-
+    private long maxPages;
+    private String createdBy;
     private LocalDateTime createdAt;
-
-    private LocalDateTime updatedAt;
-
+    private LocalDateTime startedAt;
     private LocalDateTime completedAt;
-
-    private Set<String> includePatterns = new HashSet<>();
-
-    private Set<String> excludePatterns = new HashSet<>();
+    private long totalPagesCrawled;
+    private long totalPagesDiscovered;
+    private long totalBytesCrawled;
+    private List<String> allowedDomains;
+    private List<String> disallowedUrls;
+    private String userAgent;
+    private int politenessDelay;
+    private boolean respectRobotsTxt;
 }

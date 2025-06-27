@@ -1,389 +1,325 @@
 package com.ouroboros.webcrawler.manager;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ouroboros.webcrawler.config.DistributedInstanceConfig;
+import com.ouroboros.webcrawler.entity.CrawlUrl;
 import com.ouroboros.webcrawler.entity.CrawlSessionEntity;
-import com.ouroboros.webcrawler.frontier.FrontierStats;
+import com.ouroboros.webcrawler.entity.CrawledPageEntity;
 import com.ouroboros.webcrawler.frontier.URLFrontier;
 import com.ouroboros.webcrawler.model.CrawlJob;
-import com.ouroboros.webcrawler.model.CrawlSession;
 import com.ouroboros.webcrawler.repository.CrawlSessionRepository;
+import com.ouroboros.webcrawler.repository.CrawledPageRepository;
+import com.ouroboros.webcrawler.worker.CrawlerWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.kafka.support.Acknowledgment;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Central coordination unit for the distributed crawler system
- */
-@Service
 @Slf4j
+@Service
 public class CrawlerManager {
 
     @Autowired
     private URLFrontier urlFrontier;
 
     @Autowired
+    private CrawlerWorker crawlerWorker;
+
+    @Autowired
     private CrawlSessionRepository sessionRepository;
 
-    // Used internally for kafka message publishing - keep this field
     @Autowired
-    @SuppressWarnings("unused")
-    private KafkaTemplate<String, CrawlJob> kafkaTemplate;
+    private CrawledPageRepository pageRepository;
 
-    private final Map<String, CrawlSession> activeSessions = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, AtomicLong>> sessionStats = new ConcurrentHashMap<>();
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
 
-    @Value("${webcrawler.batch.size:50}")
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private DistributedInstanceConfig instanceConfig;
+
+    @Value("${webcrawler.kafka.topics.crawl-tasks:webcrawler.tasks}")
+    private String crawlTasksTopic;
+
+    @Value("${webcrawler.batch.size:10}")
     private int batchSize;
 
     @Value("${webcrawler.max-depth:10}")
-    private int defaultMaxDepth;
+    private int maxDepth;
 
-    /**
-     * Start a new crawling session
-     * Used by CrawlerController and DashboardController
-     */
-    @Transactional
-    @SuppressWarnings("unused")
-    public CrawlSession startCrawlSession(CrawlSession session) {
-        // Generate ID if not provided
-        if (session.getId() == null) {
-            session.setId(UUID.randomUUID().toString());
+    @Autowired
+    private ObjectMapper objectMapper;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private volatile boolean running = true;
+
+    private static final String WORKER_REGISTRY_KEY = "workers:active";
+    private static final String HEARTBEAT_KEY_PREFIX = "heartbeat:";
+
+    @PostConstruct
+    public void initialize() {
+        log.info("Initializing CrawlerManager for instance: {}", instanceConfig.getMachineId());
+        registerWorker();
+        startHeartbeat();
+        requestWork();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down CrawlerManager");
+        running = false;
+        unregisterWorker();
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
         }
+        crawlerWorker.shutdown();
+    }
 
+    public String startCrawlSession(CrawlSessionEntity session) {
+        log.info("Starting crawl session: {}", session.getName());
+        
         session.setStatus("RUNNING");
-        session.setCreatedAt(LocalDateTime.now());
-        session.setUpdatedAt(LocalDateTime.now());
-
-        // Set default values if not provided
-        if (session.getMaxDepth() <= 0) {
-            session.setMaxDepth(defaultMaxDepth);
-        }
-
-        // Save session to database
-        CrawlSessionEntity sessionEntity = mapToEntity(session);
-        sessionRepository.save(sessionEntity);
-
-        // Initialize session statistics
-        Map<String, AtomicLong> stats = new HashMap<>();
-        stats.put("discoveredUrls", new AtomicLong(0));
-        stats.put("crawledPages", new AtomicLong(0));
-        stats.put("failedUrls", new AtomicLong(0));
-        stats.put("totalBytes", new AtomicLong(0));
-        sessionStats.put(session.getId(), stats);
-
-        // Add to active sessions
-        activeSessions.put(session.getId(), session);
+        session.setStartedAt(LocalDateTime.now());
+        CrawlSessionEntity savedSession = sessionRepository.save(session);
 
         // Add seed URLs to frontier
         for (String seedUrl : session.getSeedUrls()) {
-            urlFrontier.addUrl(seedUrl, 1000, 0, session.getId());
-            stats.get("discoveredUrls").incrementAndGet();
+            CrawlUrl crawlUrl = CrawlUrl.builder()
+                .url(seedUrl)
+                .sessionId(savedSession.getId())
+                .depth(0)
+                .priority(1.0)
+                .status("PENDING")
+                .discoveredAt(LocalDateTime.now())
+                .build();
+            
+            urlFrontier.addUrl(crawlUrl);
         }
 
-        log.info("Started crawl session: {} with {} seed URLs", session.getId(), session.getSeedUrls().size());
-        return session;
+        // Publish work available message to distributed workers
+        publishWorkAvailable(savedSession.getId());
+        
+        return savedSession.getId();
     }
 
-    /**
-     * Stop an active crawl session
-     * Used by CrawlerController and DashboardController
-     */
-    @Transactional
-    @SuppressWarnings("unused")
-    public CrawlSession stopCrawlSession(String sessionId) {
-        CrawlSession session = activeSessions.get(sessionId);
+    public void stopCrawlSession(String sessionId) {
+        log.info("Stopping crawl session: {}", sessionId);
+        
+        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
         if (session != null) {
-            // Update session status
             session.setStatus("STOPPED");
-            session.setUpdatedAt(LocalDateTime.now());
+            session.setCompletedAt(LocalDateTime.now());
+            sessionRepository.save(session);
+        }
+    }
 
-            CrawlSessionEntity sessionEntity = sessionRepository.findById(sessionId).orElse(null);
-            if (sessionEntity != null) {
-                sessionEntity.setStatus("STOPPED");
-                sessionEntity.setUpdatedAt(LocalDateTime.now());
-                sessionRepository.save(sessionEntity);
+    @KafkaListener(topics = "${webcrawler.kafka.topics.crawl-tasks:webcrawler.tasks}")
+    public void handleCrawlTask(String message, Acknowledgment ack) {
+        try {
+            log.debug("Received crawl task: {}", message);
+            
+            CrawlJob job = objectMapper.readValue(message, CrawlJob.class);
+            
+            // Handle "work available" notifications - just trigger work request
+            if ("WORK_AVAILABLE".equals(job.getStatus()) && job.getUrl() == null) {
+                log.debug("Received work available notification for session: {}", job.getSessionId());
+                // Trigger immediate work request for this worker
+                requestWork();
+                ack.acknowledge();
+                return;
             }
-
-            // Stop processing URLs for this session
-            // This is similar to delete but doesn't remove the data
-            urlFrontier.stopSessionUrls(sessionId);
-
-            // Remove from active sessions
-            activeSessions.remove(sessionId);
-            log.info("Stopped crawl session: {}", sessionId);
-        }
-        return session;
-    }
-
-    /**
-     * Pause an active crawl session
-     * Used by SessionsApiController
-     */
-    @Transactional
-    public CrawlSession pauseSession(String sessionId) {
-        log.info("Pausing crawl session: {}", sessionId);
-        CrawlSession session = activeSessions.get(sessionId);
-        if (session != null && "RUNNING".equals(session.getStatus())) {
-            // Update status
-            session.setStatus("PAUSED");
-            session.setUpdatedAt(LocalDateTime.now());
-
-            CrawlSessionEntity sessionEntity = sessionRepository.findById(sessionId).orElse(null);
-            if (sessionEntity != null) {
-                sessionEntity.setStatus("PAUSED");
-                sessionEntity.setUpdatedAt(LocalDateTime.now());
-                sessionRepository.save(sessionEntity);
+            
+            // Handle actual crawl jobs with URLs
+            if (job.getUrl() == null) {
+                log.warn("Received crawl job with null URL, skipping: {}", message);
+                ack.acknowledge();
+                return;
             }
+            
+            CrawlUrl crawlUrl = CrawlUrl.builder()
+                .url(job.getUrl())
+                .sessionId(job.getSessionId())
+                .depth(job.getDepth())
+                .priority(job.getPriority())
+                .parentUrl(job.getParentUrl())
+                .assignedTo(instanceConfig.getMachineId())
+                .assignedAt(LocalDateTime.now())
+                .status("IN_PROGRESS")
+                .build();
 
-            // Mark all PROCESSING URLs for this session as QUEUED to stop their processing
-            urlFrontier.pauseSessionUrls(sessionId);
-
-            log.info("Paused crawl session: {}", sessionId);
-        } else {
-            log.warn("Cannot pause session {}: not found or not in RUNNING state", sessionId);
-        }
-        return session;
-    }
-
-    /**
-     * Resume a paused crawl session
-     * Used by SessionsApiController
-     */
-    @Transactional
-    public CrawlSession resumeSession(String sessionId) {
-        log.info("Resuming crawl session: {}", sessionId);
-
-        // First check if it's already in active sessions
-        CrawlSession session = activeSessions.get(sessionId);
-
-        // If not in active sessions, try to get it from the database
-        if (session == null) {
-            Optional<CrawlSessionEntity> sessionEntityOpt = sessionRepository.findById(sessionId);
-            if (sessionEntityOpt.isPresent()) {
-                session = mapFromEntity(sessionEntityOpt.get());
-
-                // Initialize session statistics if needed
-                if (!sessionStats.containsKey(sessionId)) {
-                    Map<String, AtomicLong> stats = new HashMap<>();
-                    stats.put("discoveredUrls", new AtomicLong(0));
-                    stats.put("crawledPages", new AtomicLong(0));
-                    stats.put("failedUrls", new AtomicLong(0));
-                    stats.put("totalBytes", new AtomicLong(0));
-                    sessionStats.put(sessionId, stats);
-                }
-
-                activeSessions.put(sessionId, session);
-            }
-        }
-
-        // If we found the session, change its status to RUNNING
-        if (session != null && "PAUSED".equals(session.getStatus())) {
-            session.setStatus("RUNNING");
-            session.setUpdatedAt(LocalDateTime.now());
-
-            CrawlSessionEntity sessionEntity = sessionRepository.findById(sessionId).orElse(null);
-            if (sessionEntity != null) {
-                sessionEntity.setStatus("RUNNING");
-                sessionEntity.setUpdatedAt(LocalDateTime.now());
-                sessionRepository.save(sessionEntity);
-            }
-
-            log.info("Resumed crawl session: {}", sessionId);
-        } else {
-            log.warn("Cannot resume session {}: not found or not in PAUSED state", sessionId);
-        }
-
-        return session;
-    }
-
-    /**
-     * Delete a crawl session
-     * Used by SessionsApiController
-     */
-    @Transactional
-    public void deleteSession(String sessionId) {
-        log.info("Deleting crawl session: {}", sessionId);
-
-        // First remove from active sessions if present
-        activeSessions.remove(sessionId);
-
-        // Also remove from session stats
-        sessionStats.remove(sessionId);
-
-        // Then delete from the database
-        sessionRepository.deleteById(sessionId);
-
-        // Also try to remove any URLs for this session from the frontier
-        urlFrontier.removeSessionUrls(sessionId);
-
-        log.info("Deleted crawl session: {}", sessionId);
-    }
-
-    /**
-     * Get all crawl sessions
-     * Used by CrawlerController and DashboardController
-     */
-    @SuppressWarnings("unused")
-    public List<CrawlSession> getAllSessions() {
-        List<CrawlSessionEntity> sessionEntities = sessionRepository.findAll();
-        return sessionEntities.stream()
-                .map(this::mapFromEntity)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Get active crawl sessions
-     * Used by DashboardController
-     */
-    @SuppressWarnings("unused")
-    public List<CrawlSession> getActiveSessions() {
-        return new ArrayList<>(activeSessions.values());
-    }
-
-    /**
-     * Get a specific crawl session by ID
-     * Used by CrawlerController and DashboardController
-     */
-    @SuppressWarnings("unused")
-    public Optional<CrawlSession> getSession(String sessionId) {
-        // First check active sessions
-        CrawlSession activeSession = activeSessions.get(sessionId);
-        if (activeSession != null) {
-            return Optional.of(activeSession);
-        }
-
-        // Then check database
-        return sessionRepository.findById(sessionId)
-                .map(this::mapFromEntity);
-    }
-
-    /**
-     * Update crawl statistics for a session
-     * Used by CrawlerWorker
-     */
-    @SuppressWarnings("unused")
-    public void updateCrawlStats(String sessionId, int newUrls, int crawledPages) {
-        Map<String, AtomicLong> stats = sessionStats.get(sessionId);
-        if (stats != null) {
-            stats.get("discoveredUrls").addAndGet(newUrls);
-            stats.get("crawledPages").addAndGet(crawledPages);
+            processCrawlJob(crawlUrl).thenRun(() -> {
+                ack.acknowledge();
+                log.debug("Acknowledged crawl task for URL: {}", job.getUrl());
+            });
+            
+        } catch (JsonProcessingException e) {
+            log.error("Error parsing crawl task message: {}", message, e);
+            ack.acknowledge(); // Acknowledge to avoid reprocessing bad messages
         }
     }
 
-    /**
-     * Get crawl statistics for a session
-     * Used by CrawlerController and DashboardController
-     */
-    @SuppressWarnings("unused")
-    public Map<String, Long> getSessionStats(String sessionId) {
-        Map<String, AtomicLong> stats = sessionStats.get(sessionId);
-        if (stats != null) {
-            Map<String, Long> result = new HashMap<>();
-            stats.forEach((key, value) -> result.put(key, value.get()));
-            return result;
-        }
-        return Collections.emptyMap();
-    }
-
-    /**
-     * Schedule the next batch of URLs for crawling
-     */
-    @Scheduled(fixedDelay = 5000)
-    public void scheduleCrawlBatch() {
-        // Only schedule if there are active sessions
-        if (!activeSessions.isEmpty()) {
-            urlFrontier.scheduleNextBatch(batchSize);
-        }
-    }
-
-    /**
-     * Check for completed sessions
-     */
-    @Scheduled(fixedDelay = 30000)
-    public void checkCompletedSessions() {
-        // Get frontier stats
-        FrontierStats stats = urlFrontier.getStats();
-
-        // Session is complete if no URLs are queued or processing
-        for (String sessionId : new ArrayList<>(activeSessions.keySet())) {
-            CrawlSession session = activeSessions.get(sessionId);
-            if (session != null && "RUNNING".equals(session.getStatus())) {
-                // For now, we consider a session complete if there's been no activity for a while
-                // In a real system, you'd track URLs per session more precisely
-                if (stats.getQueuedUrls() == 0 && stats.getProcessingUrls() == 0) {
-                    session.setStatus("COMPLETED");
-                    session.setUpdatedAt(LocalDateTime.now());
-                    session.setCompletedAt(LocalDateTime.now());
-
-                    CrawlSessionEntity sessionEntity = sessionRepository.findById(sessionId).orElse(null);
-                    if (sessionEntity != null) {
-                        sessionEntity.setStatus("COMPLETED");
-                        sessionEntity.setUpdatedAt(LocalDateTime.now());
-                        sessionEntity.setCompletedAt(LocalDateTime.now());
-                        sessionRepository.save(sessionEntity);
+    @Async
+    public CompletableFuture<Void> processCrawlJob(CrawlUrl crawlUrl) {
+        try {
+            log.debug("Processing crawl job for URL: {}", crawlUrl.getUrl());
+            
+            // Crawl the URL
+            CrawledPageEntity crawledPage = crawlerWorker.crawl(crawlUrl);
+            
+            // Save crawled page
+            pageRepository.save(crawledPage);
+            
+            // Mark URL as completed in frontier
+            if (crawledPage.getStatusCode() == 200) {
+                urlFrontier.markCompleted(crawlUrl.getUrl(), crawlUrl.getSessionId());
+                
+                // Extract and queue new URLs if within depth limit
+                if (crawlUrl.getDepth() < maxDepth) {
+                    List<String> extractedUrls = crawlerWorker.extractLinks(
+                        crawledPage.getContent(), crawlUrl.getUrl());
+                    
+                    for (String extractedUrl : extractedUrls) {
+                        CrawlUrl newCrawlUrl = CrawlUrl.builder()
+                            .url(extractedUrl)
+                            .sessionId(crawlUrl.getSessionId())
+                            .depth(crawlUrl.getDepth() + 1)
+                            .priority(Math.max(0.1, 1.0 - (crawlUrl.getDepth() * 0.1)))
+                            .parentUrl(crawlUrl.getUrl())
+                            .status("PENDING")
+                            .discoveredAt(LocalDateTime.now())
+                            .build();
+                        
+                        urlFrontier.addUrl(newCrawlUrl);
                     }
-
-                    activeSessions.remove(sessionId);
-                    log.info("Completed crawl session: {}", sessionId);
                 }
+            } else {
+                urlFrontier.markFailed(crawlUrl.getUrl(), crawledPage.getErrorMessage(), crawlUrl.getSessionId());
             }
+            
+            log.debug("Completed processing crawl job for URL: {}", crawlUrl.getUrl());
+            
+        } catch (Exception e) {
+            log.error("Error processing crawl job for URL: {}", crawlUrl.getUrl(), e);
+            urlFrontier.markFailed(crawlUrl.getUrl(), e.getMessage(), crawlUrl.getSessionId());
+        }
+        
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Scheduled(fixedDelay = 5000) // Every 5 seconds
+    public void requestWork() {
+        if (!running) {
+            log.debug("CrawlerManager not running, skipping work request");
+            return;
+        }
+        
+        log.debug("Requesting work from frontier...");
+        
+        try {
+            // Get URLs from frontier
+            List<CrawlUrl> urls = urlFrontier.getNextUrls(instanceConfig.getMachineId(), batchSize);
+            
+            if (!urls.isEmpty()) {
+                log.debug("Retrieved {} URLs from frontier", urls.size());
+                
+                for (CrawlUrl url : urls) {
+                    processCrawlJob(url);
+                }
+            } else {
+                log.debug("No URLs available from frontier");
+            }
+            
+        } catch (Exception e) {
+            log.error("Error requesting work from frontier", e);
         }
     }
 
-    /**
-     * Map from CrawlSessionEntity to CrawlSession
-     */
-    private CrawlSession mapFromEntity(CrawlSessionEntity entity) {
-        if (entity == null) {
-            return null;
-        }
-
-        return CrawlSession.builder()
-                .id(entity.getId())
-                .name(entity.getName())
-                .description(entity.getDescription())
-                .seedUrls(entity.getSeedUrls() != null ? entity.getSeedUrls() : new HashSet<>())
-                .maxDepth(entity.getMaxDepth())
-                .maxPagesPerDomain(entity.getMaxPagesPerDomain())
-                .respectRobotsTxt(entity.isRespectRobotsTxt())
-                .customHeaders(entity.getCustomHeaders())
-                .status(entity.getStatus())
-                .createdAt(entity.getCreatedAt())
-                .updatedAt(entity.getUpdatedAt())
-                .completedAt(entity.getCompletedAt())
-                .includePatterns(entity.getIncludePatterns())
-                .excludePatterns(entity.getExcludePatterns())
+    private void publishWorkAvailable(String sessionId) {
+        try {
+            CrawlJob workNotification = CrawlJob.builder()
+                .sessionId(sessionId)
+                .status("WORK_AVAILABLE")
+                .createdAt(LocalDateTime.now())
                 .build();
+            
+            String message = objectMapper.writeValueAsString(workNotification);
+            kafkaTemplate.send(crawlTasksTopic, message);
+            
+            log.debug("Published work available notification for session: {}", sessionId);
+            
+        } catch (JsonProcessingException e) {
+            log.error("Error publishing work available notification", e);
+        }
     }
 
-    /**
-     * Map from CrawlSession to CrawlSessionEntity
-     */
-    private CrawlSessionEntity mapToEntity(CrawlSession session) {
-        return CrawlSessionEntity.builder()
-                .id(session.getId())
-                .name(session.getName())
-                .description(session.getDescription())
-                .seedUrls(new HashSet<>(session.getSeedUrls() != null ? session.getSeedUrls() : Collections.emptySet()))
-                .maxDepth(session.getMaxDepth())
-                .maxPagesPerDomain(session.getMaxPagesPerDomain())
-                .respectRobotsTxt(session.isRespectRobotsTxt())
-                .customHeaders(session.getCustomHeaders())
-                .status(session.getStatus())
-                .createdAt(session.getCreatedAt())
-                .updatedAt(session.getUpdatedAt())
-                .completedAt(session.getCompletedAt())
-                .includePatterns(session.getIncludePatterns())
-                .excludePatterns(session.getExcludePatterns())
-                .build();
+    private void registerWorker() {
+        String workerKey = WORKER_REGISTRY_KEY;
+        String workerId = instanceConfig.getMachineId();
+        String workerInfo = String.format("{\"id\":\"%s\",\"host\":\"%s\",\"registeredAt\":\"%s\"}", 
+            workerId, instanceConfig.getAdvertisedHost(), LocalDateTime.now());
+        
+        redisTemplate.opsForSet().add(workerKey, workerInfo);
+        log.info("Registered worker: {}", workerId);
+    }
+
+    private void unregisterWorker() {
+        String workerKey = WORKER_REGISTRY_KEY;
+        String workerId = instanceConfig.getMachineId();
+        
+        // Remove from active workers set (simplified removal)
+        redisTemplate.opsForSet().members(workerKey).forEach(member -> {
+            if (member.toString().contains(workerId)) {
+                redisTemplate.opsForSet().remove(workerKey, member);
+            }
+        });
+        
+        log.info("Unregistered worker: {}", workerId);
+    }
+
+    private void startHeartbeat() {
+        scheduler.scheduleAtFixedRate(() -> {
+            if (running) {
+                String heartbeatKey = HEARTBEAT_KEY_PREFIX + instanceConfig.getMachineId();
+                redisTemplate.opsForValue().set(heartbeatKey, 
+                    LocalDateTime.now().toString(), 
+                    instanceConfig.getHeartbeatIntervalSeconds() * 2, 
+                    TimeUnit.SECONDS);
+            }
+        }, 0, instanceConfig.getHeartbeatIntervalSeconds(), TimeUnit.SECONDS);
+    }
+
+    public List<CrawlSessionEntity> getAllSessions() {
+        return sessionRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    public CrawlSessionEntity getSession(String sessionId) {
+        return sessionRepository.findById(sessionId).orElse(null);
+    }
+
+    public List<CrawledPageEntity> getSessionPages(String sessionId) {
+        return pageRepository.findBySessionId(sessionId);
     }
 }

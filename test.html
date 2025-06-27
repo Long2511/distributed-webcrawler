@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Session Details</title>
+</head>
+<body>
+    <div id="session-details-container">
+        <h1>Testing session ID extraction</h1>
+        <p>Current URL: <span id="current-url"></span></p>
+        <p>Extracted Session ID: <span id="extracted-session-id"></span></p>
+    </div>
+
+    <script>
+        // Same logic as in the fixed template
+        document.addEventListener('DOMContentLoaded', function() {
+            // Display current URL
+            document.getElementById('current-url').textContent = window.location.href;
+            
+            // Get session ID from URL path (same logic as the fix)
+            const pathParts = window.location.pathname.split('/');
+            const sessionId = pathParts[pathParts.length - 1]; // Get the last part of the path
+
+            if (!sessionId || sessionId === 'sessions' || sessionId === 'test.html') {
+                document.getElementById('extracted-session-id').textContent = 'No session ID found';
+                document.getElementById('session-details-container').innerHTML += 
+                    '<div style="color: red;">No session ID provided</div>';
+            } else {
+                document.getElementById('extracted-session-id').textContent = sessionId;
+                document.getElementById('session-details-container').innerHTML += 
+                    '<div style="color: green;">Session ID found: ' + sessionId + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,178 +1,262 @@
 package com.ouroboros.webcrawler.worker;
 
+import com.ouroboros.webcrawler.entity.CrawlUrl;
 import com.ouroboros.webcrawler.entity.CrawledPageEntity;
-import com.ouroboros.webcrawler.model.CrawlJob;
-import com.ouroboros.webcrawler.repository.CrawledPageRepository;
-import edu.uci.ics.crawler4j.crawler.Page;
-import edu.uci.ics.crawler4j.crawler.WebCrawler;
-import edu.uci.ics.crawler4j.parser.HtmlParseData;
-import edu.uci.ics.crawler4j.url.WebURL;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.util.StringUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.net.URI;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
-/**
- * Basic web crawler implementation using crawler4j
- */
 @Slf4j
-public class BasicCrawler extends WebCrawler {
+@Component
+public class BasicCrawler implements CrawlerWorker {
 
-    private final static Pattern FILTERS = Pattern.compile(".*(\\.(css|js|gif|jpg|png|mp3|mp4|zip|gz|pdf))$");
+    @Value("${webcrawler.user-agent:Ouroboros Web Crawler/1.0}")
+    private String userAgent;
 
-    private CrawlJob crawlJob;
-    private CrawledPageRepository crawledPageRepository;
-    private int maxDepth;
-    private boolean sameDomainOnly;
-    private String baseDomain;
-    private Set<String> visitedUrls = new HashSet<>();
+    @Value("${webcrawler.politeness.delay:500}")
+    private int politenessDelay;
 
-    /**
-     * Initialize crawler with job parameters
-     */
-    public void initialize(CrawlJob job, CrawledPageRepository repository, int maxDepth, boolean sameDomainOnly) {
-        this.crawlJob = job;
-        this.crawledPageRepository = repository;
-        this.maxDepth = maxDepth;
-        this.sameDomainOnly = sameDomainOnly;
+    @Value("${webcrawler.politeness.respect-robots-txt:true}")
+    private boolean respectRobotsTxt;
 
-        if (job != null && job.getUrl() != null) {
-            try {
-                java.net.URL url = new java.net.URL(job.getUrl());
-                this.baseDomain = url.getHost();
-                log.debug("Base domain for job {}: {}", job.getId(), this.baseDomain);
-            } catch (Exception e) {
-                log.error("Failed to parse base domain from URL: {}", job.getUrl(), e);
-            }
-        }
-    }
+    private static final Pattern VALID_URL_PATTERN = Pattern.compile(
+        "^https?://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"
+    );
 
-    /**
-     * This method receives two parameters. The first parameter is the page
-     * in which we have discovered this new url and the second parameter is
-     * the new url. You should implement this function to specify whether
-     * the given url should be crawled or not (based on your crawling logic).
-     */
+    private final Map<String, RobotsTxtRules> robotsCache = new HashMap<>();
+
     @Override
-    public boolean shouldVisit(Page referringPage, WebURL url) {
-        String href = url.getURL().toLowerCase();
-
-        // Skip URLs we've already seen
-        if (visitedUrls.contains(href)) {
-            return false;
-        }
-
-        // Skip binary/media files
-        if (FILTERS.matcher(href).matches()) {
-            return false;
-        }
-
-        // Stay within the same domain if required
-        if (sameDomainOnly && baseDomain != null) {
-            String domain = url.getDomain();
-            return domain != null && domain.equals(baseDomain);
-        }
-
-        // Check depth against max depth
-        if (url.getDepth() > maxDepth) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * This function is called when a page is fetched and ready
-     * to be processed by your program.
-     */
-    @Override
-    public void visit(Page page) {
-        String url = page.getWebURL().getURL();
-        visitedUrls.add(url);
-
-        log.debug("Visiting: {}", url);
-
-        if (page.getParseData() instanceof HtmlParseData) {
-            HtmlParseData htmlParseData = (HtmlParseData) page.getParseData();
-            String text = htmlParseData.getText();
-            String html = htmlParseData.getHtml();
-            Set<WebURL> links = htmlParseData.getOutgoingUrls();
-            String title = htmlParseData.getTitle();
-
-            // Extract metadata from HTML
-            Map<String, String> metaInfo = extractMetaTags(html);
-
-            // Convert to our domain model
-            CrawledPageEntity.CrawledPageEntityBuilder pageBuilder = CrawledPageEntity.builder()
-                    .url(url)
-                    .title(title)
-                    .content(text)
-                    .html(html)
-                    .statusCode(page.getStatusCode())
-                    .contentType(page.getContentType())
-                    .crawlTimestamp(LocalDateTime.now())
-                    .crawlDepth(page.getWebURL().getDepth())
-                    .domain(page.getWebURL().getDomain())
-                    .metaInfo(metaInfo)
-                    .parsed(true)
-                    .sessionId(crawlJob != null ? crawlJob.getSessionId() : null);
-
-            // Extract outgoing links
-            Set<String> outgoingLinks = new HashSet<>();
-            for (WebURL link : links) {
-                outgoingLinks.add(link.getURL());
-            }
-            pageBuilder.outgoingLinks(outgoingLinks);
-
-            // Set content length
-            if (page.getContentData() != null) {
-                pageBuilder.contentLength(page.getContentData().length);
-            } else {
-                pageBuilder.contentLength(0);
-            }
-
-            CrawledPageEntity crawledPage = pageBuilder.build();
-
-            // Save to database
-            try {
-                crawledPageRepository.save(crawledPage);
-                log.debug("Saved page: {} with {} outgoing links", url, outgoingLinks.size());
-            } catch (Exception e) {
-                log.error("Failed to save crawled page: {}", url, e);
-            }
-        }
-    }
-
-    /**
-     * Extract meta tags from HTML
-     */
-    private Map<String, String> extractMetaTags(String html) {
-        Map<String, String> metaTags = new HashMap<>();
-
+    public CrawledPageEntity crawl(CrawlUrl crawlUrl) {
+        long startTime = System.currentTimeMillis();
+        
         try {
-            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
-            doc.select("meta").forEach(meta -> {
-                String name = meta.attr("name");
-                if (StringUtils.hasText(name)) {
-                    metaTags.put(name, meta.attr("content"));
-                } else {
-                    // Try property for OpenGraph tags
-                    name = meta.attr("property");
-                    if (StringUtils.hasText(name)) {
-                        metaTags.put(name, meta.attr("content"));
+            log.debug("Crawling URL: {}", crawlUrl.getUrl());
+            
+            // Check robots.txt if enabled
+            if (respectRobotsTxt && !isAllowedByRobots(crawlUrl.getUrl())) {
+                log.debug("URL blocked by robots.txt: {}", crawlUrl.getUrl());
+                return CrawledPageEntity.builder()
+                    .url(crawlUrl.getUrl())
+                    .sessionId(crawlUrl.getSessionId())
+                    .statusCode(403)
+                    .errorMessage("Blocked by robots.txt")
+                    .crawlTime(LocalDateTime.now())
+                    .crawlDurationMs(System.currentTimeMillis() - startTime)
+                    .depth(crawlUrl.getDepth())
+                    .parentUrl(crawlUrl.getParentUrl())
+                    .crawlerInstanceId(crawlUrl.getAssignedTo())
+                    .build();
+            }
+
+            // Apply politeness delay
+            if (politenessDelay > 0) {
+                Thread.sleep(politenessDelay);
+            }
+
+            // Fetch the page
+            Document doc = Jsoup.connect(crawlUrl.getUrl())
+                .userAgent(userAgent)
+                .timeout(30000)
+                .followRedirects(true)
+                .get();
+
+            // Extract content
+            String title = doc.title();
+            String content = doc.text();
+            
+            long crawlDuration = System.currentTimeMillis() - startTime;
+            
+            return CrawledPageEntity.builder()
+                .url(crawlUrl.getUrl())
+                .title(title)
+                .content(content)
+                .sessionId(crawlUrl.getSessionId())
+                .statusCode(200)
+                .contentType("text/html")
+                .contentLength(content.length())
+                .crawlTime(LocalDateTime.now())
+                .crawlDurationMs(crawlDuration)
+                .depth(crawlUrl.getDepth())
+                .parentUrl(crawlUrl.getParentUrl())
+                .crawlerInstanceId(crawlUrl.getAssignedTo())
+                .build();
+                
+        } catch (IOException e) {
+            log.error("Error crawling URL: {}", crawlUrl.getUrl(), e);
+            return CrawledPageEntity.builder()
+                .url(crawlUrl.getUrl())
+                .sessionId(crawlUrl.getSessionId())
+                .statusCode(0)
+                .errorMessage(e.getMessage())
+                .crawlTime(LocalDateTime.now())
+                .crawlDurationMs(System.currentTimeMillis() - startTime)
+                .depth(crawlUrl.getDepth())
+                .parentUrl(crawlUrl.getParentUrl())
+                .crawlerInstanceId(crawlUrl.getAssignedTo())
+                .build();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Crawling interrupted for URL: {}", crawlUrl.getUrl(), e);
+            return CrawledPageEntity.builder()
+                .url(crawlUrl.getUrl())
+                .sessionId(crawlUrl.getSessionId())
+                .statusCode(0)
+                .errorMessage("Interrupted")
+                .crawlTime(LocalDateTime.now())
+                .crawlDurationMs(System.currentTimeMillis() - startTime)
+                .depth(crawlUrl.getDepth())
+                .parentUrl(crawlUrl.getParentUrl())
+                .crawlerInstanceId(crawlUrl.getAssignedTo())
+                .build();
+        }
+    }
+
+    @Override
+    public List<String> extractLinks(String html, String baseUrl) {
+        List<String> links = new ArrayList<>();
+        
+        try {
+            Document doc = Jsoup.parse(html, baseUrl);
+            Elements linkElements = doc.select("a[href]");
+            
+            for (Element link : linkElements) {
+                String href = link.attr("abs:href");
+                if (isValidUrl(href)) {
+                    links.add(href);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error extracting links from {}", baseUrl, e);
+        }
+        
+        return links;
+    }
+
+    @Override
+    public boolean isValidUrl(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        
+        return VALID_URL_PATTERN.matcher(url).matches();
+    }
+
+    private boolean isAllowedByRobots(String url) {
+        try {
+            URI uri = URI.create(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            
+            RobotsTxtRules rules = robotsCache.get(host);
+            if (rules == null) {
+                rules = fetchRobotsTxt(host);
+                robotsCache.put(host, rules);
+            }
+            
+            return rules.isAllowed(path, userAgent);
+            
+        } catch (Exception e) {
+            log.debug("Error checking robots.txt for {}, allowing by default", url);
+            return true;
+        }
+    }
+
+    private RobotsTxtRules fetchRobotsTxt(String host) {
+        try {
+            String robotsUrl = "http://" + host + "/robots.txt";
+            Document robotsDoc = Jsoup.connect(robotsUrl)
+                .userAgent(userAgent)
+                .timeout(5000)
+                .get();
+            
+            return new RobotsTxtRules(robotsDoc.text());
+            
+        } catch (Exception e) {
+            log.debug("Could not fetch robots.txt for {}, allowing all", host);
+            return new RobotsTxtRules("");
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        log.info("BasicCrawler shutting down");
+        robotsCache.clear();
+    }
+
+    static class RobotsTxtRules {
+        private final List<String> disallowedPaths = new ArrayList<>();
+        private final List<String> allowedPaths = new ArrayList<>();
+
+        public RobotsTxtRules(String robotsTxt) {
+            parseRobotsTxt(robotsTxt);
+        }
+
+        private void parseRobotsTxt(String robotsTxt) {
+            if (robotsTxt == null || robotsTxt.trim().isEmpty()) {
+                return;
+            }
+
+            String[] lines = robotsTxt.split("\n");
+            boolean relevantUserAgent = false;
+
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                if (line.toLowerCase().startsWith("user-agent:")) {
+                    String agent = line.substring(11).trim();
+                    relevantUserAgent = agent.equals("*") || 
+                        agent.toLowerCase().contains("crawler") ||
+                        agent.toLowerCase().contains("bot");
+                } else if (relevantUserAgent) {
+                    if (line.toLowerCase().startsWith("disallow:")) {
+                        String path = line.substring(9).trim();
+                        if (!path.isEmpty()) {
+                            disallowedPaths.add(path);
+                        }
+                    } else if (line.toLowerCase().startsWith("allow:")) {
+                        String path = line.substring(6).trim();
+                        if (!path.isEmpty()) {
+                            allowedPaths.add(path);
+                        }
                     }
                 }
-            });
-        } catch (Exception e) {
-            log.warn("Error extracting meta tags: {}", e.getMessage());
+            }
         }
 
-        return metaTags;
+        public boolean isAllowed(String path, String userAgent) {
+            if (path == null) path = "/";
+
+            // Check allow rules first
+            for (String allowedPath : allowedPaths) {
+                if (path.startsWith(allowedPath)) {
+                    return true;
+                }
+            }
+
+            // Check disallow rules
+            for (String disallowedPath : disallowedPaths) {
+                if (path.startsWith(disallowedPath)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
     }
 }

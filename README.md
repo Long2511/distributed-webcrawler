@@ -118,7 +118,7 @@ This will start the web crawler along with MongoDB, Redis, and Kafka in separate
 
 1. Access the web interface at `http://localhost:8080`
 2. Navigate to "Sessions" > "New Crawl Session"
-3. Enter a name and description for the session
+3. Enter a name for the session
 4. Add seed URLs (starting points for the crawler)
 5. Configure crawl parameters:
    - Max depth
@@ -134,16 +134,6 @@ This will start the web crawler along with MongoDB, Redis, and Kafka in separate
 - Pause/resume/stop sessions as needed
 - Monitor system resource usage
 
-### API Integration
-
-The system provides RESTful APIs for programmatic control:
-
-- `POST /api/crawler/sessions` - Create new session
-- `GET /api/crawler/sessions` - List all sessions
-- `GET /api/crawler/sessions/{id}` - Get session details
-- `POST /api/crawler/sessions/{id}/pause` - Pause session
-- `POST /api/crawler/sessions/{id}/resume` - Resume session
-- `POST /api/crawler/sessions/{id}/stop` - Stop session
 
 ## Scaling
 
@@ -169,7 +159,7 @@ The URL Frontier manages the queue of URLs to be crawled. It implements:
 
 Workers perform the actual crawling tasks:
 
-- Connect to web pages using JSoup
+- Connect to web pages
 - Parse HTML and extract links
 - Normalize and filter URLs
 - Handle errors with exponential backoff
