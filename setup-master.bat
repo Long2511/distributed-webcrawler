@@ -14,15 +14,23 @@ if errorlevel 1 (
 )
 
 REM Get the current machine's IP address
+echo 🔍 Detecting master node IP address...
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "ipv4"') do (
     for /f "tokens=1" %%b in ("%%a") do (
-        set IP_ADDRESS=%%b
+        set MASTER_IP=%%b
         goto :found_ip
     )
 )
 :found_ip
-set IP_ADDRESS=%IP_ADDRESS: =%
-echo 🔍 Detected IP address: %IP_ADDRESS%
+set MASTER_IP=%MASTER_IP: =%
+echo.
+echo ================================
+echo 📍 MASTER NODE IP ADDRESS: %MASTER_IP%
+echo ================================
+echo.
+echo ⚠️  IMPORTANT: Workers must use this IP address to connect!
+echo 📋 Share this IP with all worker machines: %MASTER_IP%
+echo.
 
 REM Create necessary directories
 echo 📁 Creating directories...
@@ -31,9 +39,9 @@ if not exist config mkdir config
 if not exist data mkdir data
 
 REM Update configuration files with actual IP
-echo ⚙️ Updating configuration with IP: %IP_ADDRESS%
-powershell -Command "(Get-Content docker-compose-services.yml) -replace '192.168.1.100', '%IP_ADDRESS%' | Set-Content docker-compose-services.yml"
-powershell -Command "(Get-Content config\master-node.properties) -replace '192.168.1.100', '%IP_ADDRESS%' | Set-Content config\master-node.properties"
+echo ⚙️ Updating configuration with detected IP: %MASTER_IP%
+powershell -Command "(Get-Content docker-compose-services.yml) -replace '192.168.1.100', '%MASTER_IP%' | Set-Content docker-compose-services.yml"
+powershell -Command "(Get-Content config\master-node.properties) -replace '192.168.1.100', '%MASTER_IP%' | Set-Content config\master-node.properties"
 
 REM Start central services
 echo 🐳 Starting central services (MongoDB, Redis, Kafka)...
@@ -54,17 +62,21 @@ echo 🔨 Building web crawler application...
 call mvn clean package -DskipTests
 
 REM Start master node
-echo 🎯 Starting master node...
+echo Starting master node...
 start "WebCrawler Master" java -jar -Dspring.config.location=config/master-node.properties target/webcrawler-1.0-SNAPSHOT.jar
 
 echo ✅ Master node setup complete!
 echo.
-echo 📊 Access points:
-echo   - Web Crawler UI: http://%IP_ADDRESS%:8080
-echo   - Redis UI: http://%IP_ADDRESS%:8082
-echo   - MongoDB UI: http://%IP_ADDRESS%:8083
+echo ================================================================
+echo 🌐 ACCESS POINTS:
+echo   - Web Crawler UI: http://%MASTER_IP%:8080
+echo   - Redis UI: http://%MASTER_IP%:8082
+echo   - MongoDB UI: http://%MASTER_IP%:8083
 echo.
-echo 🔗 For worker nodes to connect, use IP: %IP_ADDRESS%
-echo 📋 Share this IP with other machines that will join as workers
+echo 🖥️  WORKER NODE SETUP:
+echo   Workers should connect using IP: %MASTER_IP%
+echo   Run setup-worker-existing.bat on each worker machine
+echo   When prompted, enter this IP: %MASTER_IP%
+echo ================================================================
 echo.
 pause
