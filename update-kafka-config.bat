@@ -6,10 +6,10 @@ echo =======================================================
 echo Updating Kafka Configuration for Distributed Setup
 echo =======================================================
 echo.
-echo 📋 Enter the master node IP address that workers should connect to.
+echo Enter the master node IP address that workers should connect to.
 echo.
 
-set /p MASTER_IP=🔗 Enter Master Node IP address: 
+set /p MASTER_IP=Enter Master Node IP address: 
 echo.
 echo Master node IP: %MASTER_IP%
 echo.
@@ -69,7 +69,7 @@ REM Create temporary file with updated configuration
 ) > "%KAFKA_CONFIG%"
 
 echo.
-echo ✓ Kafka configuration updated successfully!
+echo Kafka configuration updated successfully!
 echo.
 echo Key changes made:
 echo - listeners=PLAINTEXT://0.0.0.0:9092
