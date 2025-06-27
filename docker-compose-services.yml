@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # MongoDB - Stores crawled data and session information
+  mongodb:
+    image: mongo:6.0
+    container_name: webcrawler-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: webcrawler
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - webcrawler-network
+
+  # Redis - URL frontier and distributed coordination
+  redis:
+    image: redis:7-alpine
+    container_name: webcrawler-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - webcrawler-network
+
+  # Zookeeper - Required for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: webcrawler-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - webcrawler-network
+
+  # Kafka - Distributed task coordination
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: webcrawler-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_HOST://192.168.1.100:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - webcrawler-network
+
+  # Redis Commander - Web UI for Redis (optional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: webcrawler-redis-ui
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    networks:
+      - webcrawler-network
+    depends_on:
+      - redis
+
+  # Mongo Express - Web UI for MongoDB (optional)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: webcrawler-mongo-ui
+    restart: unless-stopped
+    ports:
+      - "8083:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: pass
+    networks:
+      - webcrawler-network
+    depends_on:
+      - mongodb
+
+networks:
+  webcrawler-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
