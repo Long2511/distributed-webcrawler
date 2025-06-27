@@ -76,6 +76,7 @@ public class BasicCrawler implements CrawlerWorker {
             // Extract content
             String title = doc.title();
             String content = doc.text();
+            String rawHtml = doc.html();
             
             long crawlDuration = System.currentTimeMillis() - startTime;
             
@@ -83,6 +84,7 @@ public class BasicCrawler implements CrawlerWorker {
                 .url(crawlUrl.getUrl())
                 .title(title)
                 .content(content)
+                .rawHtml(rawHtml)
                 .sessionId(crawlUrl.getSessionId())
                 .statusCode(200)
                 .contentType("text/html")
@@ -129,15 +131,26 @@ public class BasicCrawler implements CrawlerWorker {
         List<String> links = new ArrayList<>();
         
         try {
+            log.debug("Starting link extraction from baseUrl: {}", baseUrl);
             Document doc = Jsoup.parse(html, baseUrl);
             Elements linkElements = doc.select("a[href]");
             
+            log.debug("Found {} anchor elements in HTML", linkElements.size());
+            
             for (Element link : linkElements) {
                 String href = link.attr("abs:href");
+                log.debug("Processing link: {} -> {}", link.attr("href"), href);
+                
                 if (isValidUrl(href)) {
                     links.add(href);
+                    log.debug("Added valid link: {}", href);
+                } else {
+                    log.debug("Rejected invalid link: {}", href);
                 }
             }
+            
+            log.debug("Link extraction completed. Valid links found: {}", links.size());
+            
         } catch (Exception e) {
             log.error("Error extracting links from {}", baseUrl, e);
         }

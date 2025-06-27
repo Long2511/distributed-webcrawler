@@ -343,86 +343,84 @@
         }
 
         function loadUrlList() {
-            let apiUrl = `/api/sessions/${sessionId}/urls`;
+            let apiUrl = `/api/sessions/${sessionId}/pages`;
             if (currentUrlFilter !== 'all') {
                 apiUrl += `?status=${currentUrlFilter.toUpperCase()}`;
             }
 
             fetch(apiUrl)
                 .then(response => response.json())
-                .then(urls => {
+                .then(pages => {
                     const tbody = document.getElementById('url-list');
                     tbody.innerHTML = '';
 
-                    if (urls.length === 0) {
+                    if (pages.length === 0) {
                         const row = document.createElement('tr');
                         const cell = document.createElement('td');
                         cell.colSpan = 6;
-                        cell.textContent = 'No URLs found';
+                        cell.textContent = 'No pages found';
                         cell.className = 'text-center';
                         row.appendChild(cell);
                         tbody.appendChild(row);
                         return;
                     }
 
-                    urls.forEach(url => {
+                    pages.forEach(page => {
                         const row = document.createElement('tr');
 
                         const urlCell = document.createElement('td');
                         const urlLink = document.createElement('a');
-                        urlLink.href = url.url;
+                        urlLink.href = page.url;
                         urlLink.target = '_blank';
-                        urlLink.textContent = truncateText(url.url, 50);
-                        urlLink.title = url.url;
+                        urlLink.textContent = truncateText(page.url, 50);
+                        urlLink.title = page.url;
                         urlCell.appendChild(urlLink);
                         row.appendChild(urlCell);
 
                         const depthCell = document.createElement('td');
-                        depthCell.textContent = url.depth;
+                        depthCell.textContent = page.depth;
                         row.appendChild(depthCell);
 
                         const statusCell = document.createElement('td');
                         const statusBadge = document.createElement('span');
                         statusBadge.classList.add('badge');
 
-                        if (url.status === 'COMPLETED') {
+                        // For crawled pages, we can determine status based on statusCode
+                        if (page.statusCode >= 200 && page.statusCode < 300) {
                             statusBadge.classList.add('badge-success');
                             statusBadge.textContent = 'Completed';
-                        } else if (url.status === 'FAILED') {
+                        } else if (page.statusCode >= 400) {
                             statusBadge.classList.add('badge-danger');
                             statusBadge.textContent = 'Failed';
-                        } else if (url.status === 'PENDING') {
-                            statusBadge.classList.add('badge-warning');
-                            statusBadge.textContent = 'Pending';
                         } else {
-                            statusBadge.classList.add('badge-secondary');
-                            statusBadge.textContent = url.status;
+                            statusBadge.classList.add('badge-warning');
+                            statusBadge.textContent = 'Other';
                         }
 
                         statusCell.appendChild(statusBadge);
                         row.appendChild(statusCell);
 
                         const httpStatusCell = document.createElement('td');
-                        if (url.httpStatus) {
-                            if (url.httpStatus >= 200 && url.httpStatus < 300) {
+                        if (page.statusCode) {
+                            if (page.statusCode >= 200 && page.statusCode < 300) {
                                 httpStatusCell.classList.add('text-success');
-                            } else if (url.httpStatus >= 400) {
+                            } else if (page.statusCode >= 400) {
                                 httpStatusCell.classList.add('text-danger');
-                            } else if (url.httpStatus >= 300) {
+                            } else if (page.statusCode >= 300) {
                                 httpStatusCell.classList.add('text-warning');
                             }
-                            httpStatusCell.textContent = url.httpStatus;
+                            httpStatusCell.textContent = page.statusCode;
                         } else {
                             httpStatusCell.textContent = '-';
                         }
                         row.appendChild(httpStatusCell);
 
                         const contentTypeCell = document.createElement('td');
-                        contentTypeCell.textContent = url.contentType || '-';
+                        contentTypeCell.textContent = page.contentType || '-';
                         row.appendChild(contentTypeCell);
 
                         const timeCell = document.createElement('td');
-                        timeCell.textContent = url.processedTime ? new Date(url.processedTime).toLocaleTimeString() : '-';
+                        timeCell.textContent = page.crawlTime ? new Date(page.crawlTime).toLocaleTimeString() : '-';
                         row.appendChild(timeCell);
 
                         tbody.appendChild(row);

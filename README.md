@@ -174,22 +174,6 @@ The web dashboard provides:
 - Configuration interface for new crawl sessions
 - Detailed reports on crawled content
 
-## Contributing
-
-Contributions to the project are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- The architecture is inspired by best practices in distributed systems design
-- Uses proven technologies for reliability and performance
-- Designed for educational and production use cases
+### 
+ Clear redis: ``` docker exec -it frosty_leakey redis-cli FLUSHALL ```
+ clear kafka: ``` docker exec -it thirsty_leavitt /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic webcrawler.tasks```

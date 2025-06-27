@@ -196,12 +196,21 @@ public class CrawlerManager {
             if (crawledPage.getStatusCode() == 200) {
                 urlFrontier.markCompleted(crawlUrl.getUrl(), crawlUrl.getSessionId());
                 
+                log.debug("Crawl successful for URL: {}, depth: {}, maxDepth: {}", 
+                         crawlUrl.getUrl(), crawlUrl.getDepth(), maxDepth);
+                
                 // Extract and queue new URLs if within depth limit
                 if (crawlUrl.getDepth() < maxDepth) {
+                    log.debug("Extracting links from URL: {} at depth {}", crawlUrl.getUrl(), crawlUrl.getDepth());
+                    
                     List<String> extractedUrls = crawlerWorker.extractLinks(
-                        crawledPage.getContent(), crawlUrl.getUrl());
+                        crawledPage.getRawHtml(), crawlUrl.getUrl());
+                    
+                    log.debug("Extracted {} links from URL: {}", extractedUrls.size(), crawlUrl.getUrl());
                     
                     for (String extractedUrl : extractedUrls) {
+                        log.debug("Processing extracted URL: {}", extractedUrl);
+                        
                         CrawlUrl newCrawlUrl = CrawlUrl.builder()
                             .url(extractedUrl)
                             .sessionId(crawlUrl.getSessionId())
@@ -213,7 +222,11 @@ public class CrawlerManager {
                             .build();
                         
                         urlFrontier.addUrl(newCrawlUrl);
+                        log.debug("Added new URL to frontier: {} at depth {}", extractedUrl, newCrawlUrl.getDepth());
                     }
+                } else {
+                    log.debug("Skipping link extraction for URL: {} - depth {} >= maxDepth {}", 
+                             crawlUrl.getUrl(), crawlUrl.getDepth(), maxDepth);
                 }
             } else {
                 urlFrontier.markFailed(crawlUrl.getUrl(), crawledPage.getErrorMessage(), crawlUrl.getSessionId());

@@ -21,7 +21,8 @@ public class CrawledPageEntity {
     private String id;
     private String url;
     private String title;
-    private String content;
+    private String content; // Text content
+    private String rawHtml; // Raw HTML content for link extraction
     private int statusCode;
     private String contentType;
     private long contentLength;
