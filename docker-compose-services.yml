@@ -10,8 +10,10 @@ services:
       - "27017:27017"
     environment:
       MONGO_INITDB_DATABASE: webcrawler
+    command: mongod --bind_ip_all --logpath /var/log/mongodb/mongod.log --logappend
     volumes:
       - mongodb_data:/data/db
+      - mongodb_logs:/var/log/mongodb
     networks:
       - webcrawler-network
 
@@ -99,6 +101,7 @@ networks:
 
 volumes:
   mongodb_data:
+  mongodb_logs:
   redis_data:
   kafka_data:
   zookeeper_data:

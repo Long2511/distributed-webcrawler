@@ -60,6 +60,59 @@ echo.
 echo Testing connectivity to master services at %MASTER_IP%...
 echo ================================================================
 
+echo [1/3] Testing Redis connection (%MASTER_IP%:6379)...
+powershell -Command "Test-NetConnection -ComputerName %MASTER_IP% -Port 6379 -InformationLevel Quiet" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Redis port is accessible
+    redis-cli -h %MASTER_IP% ping >nul 2>&1
+    if errorlevel 1 (
+        echo WARNING: Redis port open but Redis service not responding
+    ) else (
+        echo Redis connection successful
+    )
+) else (
+    echo ERROR: Cannot connect to Redis port %MASTER_IP%:6379
+    echo Please check: 1) Redis is running, 2) Firewall allows port 6379
+    set /p CONTINUE=Continue anyway? (y/n): 
+    if /i not "%CONTINUE%"=="y" exit /b 1
+)
+
+echo [2/3] Testing MongoDB connection (%MASTER_IP%:27017)...
+powershell -Command "Test-NetConnection -ComputerName %MASTER_IP% -Port 27017 -InformationLevel Quiet" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo MongoDB port is accessible
+    REM Try to connect with timeout
+    powershell -Command "try { $conn = [System.Net.Sockets.TcpClient]::new(); $task = $conn.ConnectAsync('%MASTER_IP%', 27017); if ($task.Wait(5000)) { $conn.Close(); exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+    if errorlevel 1 (
+        echo WARNING: MongoDB port open but connection test failed
+        echo This might indicate MongoDB authentication or configuration issues
+    ) else (
+        echo MongoDB connection successful
+    )
+) else (
+    echo ERROR: Cannot connect to MongoDB port %MASTER_IP%:27017
+    echo Please check: 1) MongoDB is running, 2) Firewall allows port 27017
+    set /p CONTINUE=Continue anyway? (y/n): 
+    if /i not "%CONTINUE%"=="y" exit /b 1
+)
+
+echo [3/3] Testing Kafka connection (%MASTER_IP%:9092)...
+powershell -Command "Test-NetConnection -ComputerName %MASTER_IP% -Port 9092 -InformationLevel Quiet" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Kafka port is accessible
+    REM Basic Kafka test would need Kafka tools, so just test port connectivity
+    echo Kafka connection test completed
+) else (
+    echo ERROR: Cannot connect to Kafka port %MASTER_IP%:9092
+    echo Please check: 1) Kafka is running, 2) Firewall allows port 9092, 3) Kafka advertised.listeners configured
+    set /p CONTINUE=Continue anyway? (y/n): 
+    if /i not "%CONTINUE%"=="y" exit /b 1
+)
+
+echo.
+echo Connectivity tests completed. Starting application...
+echo.
+
 
 REM Build the web crawler application if not already built
 if not exist target\webcrawler-1.0-SNAPSHOT.jar (
