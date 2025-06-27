@@ -45,6 +45,8 @@ powershell -Command "(Get-Content config\master-node.properties) -replace '192.1
 
 REM Start central services
 echo Starting central services (MongoDB, Redis, Kafka)...
+echo NOTE: Redis and Kafka are now configured to accept external connections
+docker-compose -f docker-compose-services.yml down >nul 2>&1
 docker-compose -f docker-compose-services.yml up -d
 
 REM Wait for services to be ready
