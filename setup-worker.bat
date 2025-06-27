@@ -60,47 +60,6 @@ echo.
 echo Testing connectivity to master services at %MASTER_IP%...
 echo ================================================================
 
-echo [1/3] Testing Redis connection (%MASTER_IP%:6379)...
-redis-cli -h %MASTER_IP% ping >nul 2>&1
-if errorlevel 1 (
-    echo Cannot connect to Redis on %MASTER_IP%:6379
-    echo Please ensure:
-    echo   1. Redis is running on the master node
-    echo   2. Firewall allows port 6379
-    echo   3. Redis is configured to accept external connections
-    set /p CONTINUE=Continue anyway? (y/n): 
-    if /i not "%CONTINUE%"=="y" exit /b 1
-) else (
-    echo Redis connection successful
-)
-
-echo Testing MongoDB connection to %MASTER_IP%:27017...
-mongosh "mongodb://%MASTER_IP%:27017/webcrawler" --eval "db.runCommand('ping')" --quiet >nul 2>&1
-if errorlevel 1 (
-    echo Cannot connect to MongoDB on %MASTER_IP%:27017
-    echo Please ensure:
-    echo   1. MongoDB is running on the master node
-    echo   2. Firewall allows port 27017
-    echo   3. MongoDB is configured to accept external connections
-    set /p CONTINUE=Continue anyway? (y/n): 
-    if /i not "%CONTINUE%"=="y" exit /b 1
-) else (
-    echo MongoDB connection successful
-)
-
-echo Testing Kafka connection to %MASTER_IP%:9092...
-kafka-topics --bootstrap-server %MASTER_IP%:9092 --list >nul 2>&1
-if errorlevel 1 (
-    echo Cannot connect to Kafka on %MASTER_IP%:9092
-    echo Please ensure:
-    echo   1. Kafka is running on the master node
-    echo   2. Firewall allows port 9092
-    echo   3. Kafka advertised.listeners is properly configured
-    set /p CONTINUE=Continue anyway? (y/n): 
-    if /i not "%CONTINUE%"=="y" exit /b 1
-) else (
-    echo Kafka connection successful
-)
 
 REM Build the web crawler application if not already built
 if not exist target\webcrawler-1.0-SNAPSHOT.jar (
