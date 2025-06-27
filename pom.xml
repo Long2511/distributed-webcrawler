@@ -36,6 +36,18 @@
             <name>Maven Central</name>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
+        <!-- Oracle's Maven repository for Berkeley DB Java Edition -->
+        <repository>
+            <id>oracle-maven</id>
+            <name>Oracle Maven Repository</name>
+            <url>https://download.oracle.com/maven</url>
+        </repository>
+        <!-- Additional Maven repositories -->
+        <repository>
+            <id>maven-central-fallback</id>
+            <name>Maven Central Fallback</name>
+            <url>https://repo1.maven.org/maven2</url>
+        </repository>
     </repositories>
 
     <dependencyManagement>
@@ -109,10 +121,11 @@
         </dependency>
 
         <!-- Redis for URL frontier and bloom filter -->
+        <!-- https://mvnrepository.com/artifact/net.javacrumbs.shedlock/shedlock-provider-redis-spring -->
         <dependency>
-            <groupId>org.redisson</groupId>
-            <artifactId>redisson</artifactId>
-            <version>${redis.version}</version>
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-provider-redis-spring</artifactId>
+            <version>4.3.1</version>
         </dependency>
 
         <!-- Utils -->
@@ -149,6 +162,11 @@
             <groupId>javax.annotation</groupId>
             <artifactId>jsr250-api</artifactId>
             <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>edu.uci.ics</groupId>
+            <artifactId>crawler4j</artifactId>
+            <version>4.4.0</version>
         </dependency>
     </dependencies>
 

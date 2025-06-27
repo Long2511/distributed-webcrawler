@@ -1,6 +1,7 @@
 package com.ouroboros.webcrawler.repository;
 
 import com.ouroboros.webcrawler.entity.CrawledPageEntity;
+import lombok.Getter;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.Aggregation;
 import org.springframework.data.mongodb.repository.MongoRepository;
@@ -84,14 +85,12 @@ public interface CrawledPageRepository extends MongoRepository<CrawledPageEntity
      */
     class DomainStats {
         private String _id; // domain name
+        @Getter
         private long count;
 
         public String getDomain() {
             return _id;
         }
 
-        public long getCount() {
-            return count;
-        }
     }
 }

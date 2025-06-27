@@ -238,6 +238,8 @@ public class URLFrontier {
      */
     @Transactional
     public void scheduleNextBatch(int batchSize) {
+        // Ensure batch size is always at least 1
+        batchSize = Math.max(1, batchSize);
         // Find all URLs that are ready to be crawled
         List<CrawlUrl> readyUrls = findUrlsForCrawling(batchSize * 2); // Get more than we need for filtering
 
@@ -292,19 +294,16 @@ public class URLFrontier {
     @Transactional
     public void scheduleNextBatch() {
         int batchSize = defaultBatchSize;
-
         // If adaptive allocation is enabled, adjust batch size based on number of instances
         if (adaptiveAllocation) {
             int instanceCount = distributedInstanceConfig.getActiveInstanceCount();
             if (instanceCount > 1) {
                 // Proportionally adjust batch size based on instance count
-                // More instances = smaller batch size per instance
-                batchSize = Math.max(1, defaultBatchSize / instanceCount);
-                log.debug("Adaptive batch size: {} (based on {} active instances)",
-                         batchSize, instanceCount);
+                batchSize = defaultBatchSize / instanceCount;
             }
         }
-
+        // Ensure batch size is always at least 1
+        batchSize = Math.max(1, batchSize);
         scheduleNextBatch(batchSize);
     }
 
@@ -312,6 +311,8 @@ public class URLFrontier {
      * Find URLs that are ready to be crawled
      */
     private List<CrawlUrl> findUrlsForCrawling(int limit) {
+        // Ensure limit is always at least 1
+        limit = Math.max(1, limit);
         LocalDateTime now = LocalDateTime.now();
 
         // First try to find URLs in QUEUED status
@@ -324,7 +325,7 @@ public class URLFrontier {
             List<CrawlUrl> retryUrls = crawlUrlRepository.findByStatusAndNextRetryAtBeforeAndProcessingInstanceIsNull(
                     "RETRY",
                     now,
-                    PageRequest.of(0, limit - queuedUrls.size(), Sort.by(Sort.Direction.DESC, "priority")));
+                    PageRequest.of(0, Math.max(1, limit - queuedUrls.size()), Sort.by(Sort.Direction.DESC, "priority")));
             queuedUrls.addAll(retryUrls);
         }
 
@@ -335,7 +336,7 @@ public class URLFrontier {
             List<CrawlUrl> staleUrls = crawlUrlRepository.findByStatusAndProcessingInstanceNotIn(
                 "PROCESSING",
                 activeInstanceIds,
-                PageRequest.of(0, limit - queuedUrls.size(), Sort.by(Sort.Direction.DESC, "updatedAt")));
+                PageRequest.of(0, Math.max(1, limit - queuedUrls.size()), Sort.by(Sort.Direction.DESC, "updatedAt")));
 
             if (!staleUrls.isEmpty()) {
                 log.info("Found {} stale URLs assigned to inactive instances - reclaiming them", staleUrls.size());

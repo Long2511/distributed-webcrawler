@@ -35,6 +35,9 @@ public class CrawledPageEntity {
 
     private String content;
 
+    // Add field to store raw HTML content
+    private String html;
+
     private Set<String> outgoingLinks = new HashSet<>();
 
     private int statusCode;
