@@ -14,19 +14,9 @@ echo   2. You need the Master Node IP address
 echo   3. Network connectivity to master node
 echo.
 
-REM Check if Maven is available
-echo [1/7] Checking Maven installation...
-mvn --version >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Maven is not installed or not in PATH.
-    echo Please install Maven and add it to your PATH.
-    pause
-    exit /b 1
-)
-echo Maven is available.
 
 REM Get master IP from user
-echo [2/7] Getting master node information...
+echo [1/7] Getting master node information...
 set /p MASTER_IP=Enter the Master Node IP address: 
 if "%MASTER_IP%"=="" (
     echo ERROR: Master IP address is required.
@@ -42,7 +32,7 @@ echo    - Kafka:    %MASTER_IP%:19092 (external access)
 echo.
 
 REM Get the current machine's IP address
-echo [3/7] Detecting worker node IP address...
+echo [2/7] Detecting worker node IP address...
 for /f "skip=1 tokens=1" %%a in ('wmic computersystem get name') do if not defined COMPUTER_NAME set COMPUTER_NAME=%%a
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "ipv4" ^| findstr /v "127.0.0.1" ^| findstr /v "169.254"') do (
     for /f "tokens=1" %%b in ("%%a") do (
@@ -62,29 +52,14 @@ echo This worker's IP address: %WORKER_IP%
 echo Worker will be accessible at: http://%WORKER_IP%:8081
 
 REM Create necessary directories
-echo [4/7] Creating directories...
+echo [3/7] Creating directories...
 if not exist logs mkdir logs
 if not exist config mkdir config
 echo Directories created.
 
-REM Test connectivity to master services
-echo [5/7] Testing connectivity to master services...
-echo ================================================================
-
-echo Testing Redis connection...
-timeout /t 1 /nobreak >nul
-ping -n 1 %MASTER_IP% >nul 2>&1
-if errorlevel 1 (
-    echo WARNING: Cannot reach master IP %MASTER_IP%
-    echo Please verify the IP address and network connectivity.
-    set /p CONTINUE=Continue anyway? (y/N): 
-    if /i not "%%CONTINUE%%"=="y" exit /b 1
-) else (
-    echo Network connectivity to master: OK
-)
 
 REM Create worker configuration
-echo [6/7] Creating worker configuration...
+echo [5/7] Creating worker configuration...
 if exist config\worker-node.properties (
     copy config\worker-node.properties config\worker-node-local.properties >nul
     echo Using existing worker-node.properties as template.
@@ -128,7 +103,7 @@ powershell -Command "(Get-Content config\worker-node-local.properties) -replace 
 echo Worker configuration completed.
 
 REM Build the web crawler application if needed
-echo [7/7] Building application...
+echo [6/7] Building application...
 if not exist target\webcrawler-1.0-SNAPSHOT.jar (
     echo Building web crawler application...
     call mvn clean package -DskipTests
