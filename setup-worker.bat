@@ -31,6 +31,27 @@ echo    - MongoDB:  %MASTER_IP%:27017
 echo    - Kafka:    %MASTER_IP%:19092 (external access)
 echo.
 
+REM Test connectivity to master services
+echo Testing connectivity to master services...
+echo Testing Redis connection...
+powershell -Command "try {$tcpClient = New-Object System.Net.Sockets.TcpClient; $tcpClient.ConnectAsync('%MASTER_IP%', 6379).Wait(3000); $tcpClient.Close(); echo 'Redis: OK'} catch {echo 'Redis: FAILED - Cannot connect to %MASTER_IP%:6379'}"
+
+echo Testing MongoDB connection...
+powershell -Command "try {$tcpClient = New-Object System.Net.Sockets.TcpClient; $tcpClient.ConnectAsync('%MASTER_IP%', 27017).Wait(3000); $tcpClient.Close(); echo 'MongoDB: OK'} catch {echo 'MongoDB: FAILED - Cannot connect to %MASTER_IP%:27017'}"
+
+echo Testing Kafka connection...
+powershell -Command "try {$tcpClient = New-Object System.Net.Sockets.TcpClient; $tcpClient.ConnectAsync('%MASTER_IP%', 19092).Wait(3000); $tcpClient.Close(); echo 'Kafka: OK'} catch {echo 'Kafka: FAILED - Cannot connect to %MASTER_IP%:19092'}"
+
+echo.
+echo If any services show FAILED, please:
+echo   1. Ensure the master node is running (setup-master.bat)
+echo   2. Check firewall settings on master machine
+echo   3. Verify the master IP address is correct
+echo.
+pause
+
+echo.
+
 REM Get the current machine's IP address
 echo [2/7] Detecting worker node IP address...
 for /f "skip=1 tokens=1" %%a in ('wmic computersystem get name') do if not defined COMPUTER_NAME set COMPUTER_NAME=%%a
@@ -66,8 +87,12 @@ if exist config\worker-node.properties (
 ) else (
     echo Creating new worker configuration...
     echo # Worker Node Configuration > config\worker-node-local.properties
+    echo spring.application.name=distributed-webcrawler-worker >> config\worker-node-local.properties
     echo server.port=8081 >> config\worker-node-local.properties
-    echo webcrawler.instance.type=worker >> config\worker-node-local.properties
+    echo. >> config\worker-node-local.properties
+    echo # Worker instance settings >> config\worker-node-local.properties
+    echo webcrawler.instance.is-master=false >> config\worker-node-local.properties
+    echo webcrawler.instance.enable-web-ui=false >> config\worker-node-local.properties
     echo webcrawler.instance.advertised-host=%WORKER_IP% >> config\worker-node-local.properties
     echo. >> config\worker-node-local.properties
     echo # Redis Configuration >> config\worker-node-local.properties
@@ -79,12 +104,21 @@ if exist config\worker-node.properties (
     echo spring.kafka.consumer.group-id=webcrawler-workers >> config\worker-node-local.properties
     echo spring.kafka.consumer.auto-offset-reset=earliest >> config\worker-node-local.properties
     echo. >> config\worker-node-local.properties
+    echo # Kafka topics >> config\worker-node-local.properties
+    echo webcrawler.kafka.topics.crawl-tasks=webcrawler.tasks >> config\worker-node-local.properties
+    echo webcrawler.kafka.topics.partition-count=10 >> config\worker-node-local.properties
+    echo webcrawler.kafka.topics.replication-factor=1 >> config\worker-node-local.properties
+    echo. >> config\worker-node-local.properties
     echo # MongoDB Configuration >> config\worker-node-local.properties
     echo spring.data.mongodb.uri=mongodb://%MASTER_IP%:27017/webcrawler >> config\worker-node-local.properties
     echo. >> config\worker-node-local.properties
     echo # Logging Configuration >> config\worker-node-local.properties
     echo logging.file.name=logs/webcrawler-worker.log >> config\worker-node-local.properties
     echo logging.level.com.ouroboros.webcrawler=INFO >> config\worker-node-local.properties
+    echo. >> config\worker-node-local.properties
+    echo # Actuator endpoints >> config\worker-node-local.properties
+    echo management.endpoints.web.exposure.include=health,info,metrics >> config\worker-node-local.properties
+    echo management.endpoint.health.show-details=always >> config\worker-node-local.properties
 )
 
 REM Update configuration with actual IPs

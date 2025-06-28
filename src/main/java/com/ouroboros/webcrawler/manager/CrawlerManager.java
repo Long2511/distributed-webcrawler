@@ -62,8 +62,8 @@ public class CrawlerManager {
     @Value("${webcrawler.batch.size:10}")
     private int batchSize;
 
-    @Value("${webcrawler.max-depth:10}")
-    private int maxDepth;
+    //@Value("${webcrawler.max-depth:10}")
+    private int maxDepth = 2;
 
     @Autowired
     private ObjectMapper objectMapper;
