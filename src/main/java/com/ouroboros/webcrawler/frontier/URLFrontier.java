@@ -156,13 +156,13 @@ public class URLFrontier {
                 // Mark as being processed by this machine
                 redisTemplate.opsForValue().set(processingKey, machineId);
                 
-                // Update status and assignment
+                // Remove from queue before mutating so the original entry is deleted
+                crawlUrlRepository.remove(crawlUrl);
+
+                // Update status and assignment after removal
                 crawlUrl.setStatus("IN_PROGRESS");
                 crawlUrl.setAssignedTo(machineId);
                 crawlUrl.setAssignedAt(LocalDateTime.now());
-                
-                // Remove from queue since it's now being processed
-                crawlUrlRepository.remove(crawlUrl);
                 
                 result.add(crawlUrl);
                 remaining--;

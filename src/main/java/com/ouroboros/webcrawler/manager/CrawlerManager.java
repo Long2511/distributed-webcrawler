@@ -189,9 +189,6 @@ public class CrawlerManager {
             // Crawl the URL
             CrawledPageEntity crawledPage = crawlerWorker.crawl(crawlUrl);
             
-            // Save crawled page
-            pageRepository.save(crawledPage);
-            
             // Mark URL as completed in frontier
             if (crawledPage.getStatusCode() == 200) {
                 urlFrontier.markCompleted(crawlUrl.getUrl(), crawlUrl.getSessionId());
@@ -336,3 +333,4 @@ public class CrawlerManager {
         return pageRepository.findBySessionId(sessionId);
     }
 }
+
