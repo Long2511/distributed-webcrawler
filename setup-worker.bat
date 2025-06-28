@@ -59,7 +59,7 @@ echo Directories created.
 
 
 REM Create worker configuration
-echo [5/7] Creating worker configuration...
+echo [4/7] Creating worker configuration...
 if exist config\worker-node.properties (
     copy config\worker-node.properties config\worker-node-local.properties >nul
     echo Using existing worker-node.properties as template.
@@ -103,39 +103,16 @@ powershell -Command "(Get-Content config\worker-node-local.properties) -replace 
 echo Worker configuration completed.
 
 REM Build the web crawler application if needed
-echo [6/7] Building application...
-if not exist target\webcrawler-1.0-SNAPSHOT.jar (
-    echo Building web crawler application...
-    call mvn clean package -DskipTests
-    if errorlevel 1 (
-        echo ERROR: Build failed. Please check the build errors above.
-        pause
-        exit /b 1
-    )
-) else (
-    echo Application JAR already exists. Checking if rebuild is needed...
-    REM Check if source is newer than JAR
-    for %%i in (target\webcrawler-1.0-SNAPSHOT.jar) do set JAR_DATE=%%~ti
-    for /f %%j in ('dir /b /od src\main\java\com\ouroboros\webcrawler\*.java 2^>nul ^| tail -1') do (
-        if exist "src\main\java\com\ouroboros\webcrawler\%%j" (
-            echo Source files may be newer. Rebuilding...
-            call mvn clean package -DskipTests
-            if errorlevel 1 (
-                echo ERROR: Build failed. Please check the build errors above.
-                pause
-                exit /b 1
-            )
-            goto :build_done
-        )
-    )
-    echo Using existing JAR file.
+echo [5/7] Building web crawler application...
+call mvn clean package -DskipTests
+if errorlevel 1 (
+    echo ERROR: Build failed. Please check the build errors above.
+    pause
+    exit /b 1
 )
-:build_done
 
 REM Start worker node
-echo.
-echo Starting worker node...
-echo Worker will connect to master at %MASTER_IP% and listen on %WORKER_IP%:8081
+echo [6/7] Starting worker node...
 start "WebCrawler Worker - %WORKER_IP%" java -Dspring.config.location=config/worker-node-local.properties -jar target/webcrawler-1.0-SNAPSHOT.jar
 
 REM Wait for the application to start
@@ -144,9 +121,9 @@ timeout /t 15 /nobreak >nul
 
 REM Test if the worker started successfully
 echo Checking worker health...
-curl -s http://localhost:8081/actuator/health >nul 2>&1
+powershell -Command "try {(Invoke-WebRequest -UseBasicParsing http://localhost:8081/actuator/health).StatusCode} catch {exit 1}" >nul 2>&1
 if errorlevel 1 (
-    echo Worker may still be starting up. Please check the worker window for status.
+    echo Worker may still be starting up or failed. Check logs in logs/webcrawler-worker.log.
 ) else (
     echo SUCCESS: Worker started successfully and is healthy!
 )
