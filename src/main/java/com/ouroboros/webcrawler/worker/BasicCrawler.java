@@ -2,11 +2,13 @@ package com.ouroboros.webcrawler.worker;
 
 import com.ouroboros.webcrawler.entity.CrawlUrl;
 import com.ouroboros.webcrawler.entity.CrawledPageEntity;
+import com.ouroboros.webcrawler.repository.CrawledPageRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +40,9 @@ public class BasicCrawler implements CrawlerWorker {
 
     private final Map<String, RobotsTxtRules> robotsCache = new HashMap<>();
 
+    @Autowired
+    private CrawledPageRepository pageRepository;
+
     @Override
     public CrawledPageEntity crawl(CrawlUrl crawlUrl) {
         long startTime = System.currentTimeMillis();
@@ -48,7 +53,7 @@ public class BasicCrawler implements CrawlerWorker {
             // Check robots.txt if enabled
             if (respectRobotsTxt && !isAllowedByRobots(crawlUrl.getUrl())) {
                 log.debug("URL blocked by robots.txt: {}", crawlUrl.getUrl());
-                return CrawledPageEntity.builder()
+                CrawledPageEntity entity = CrawledPageEntity.builder()
                     .url(crawlUrl.getUrl())
                     .sessionId(crawlUrl.getSessionId())
                     .statusCode(403)
@@ -59,6 +64,8 @@ public class BasicCrawler implements CrawlerWorker {
                     .parentUrl(crawlUrl.getParentUrl())
                     .crawlerInstanceId(crawlUrl.getAssignedTo())
                     .build();
+                pageRepository.save(entity);
+                return entity;
             }
 
             // Apply politeness delay
@@ -80,7 +87,7 @@ public class BasicCrawler implements CrawlerWorker {
             
             long crawlDuration = System.currentTimeMillis() - startTime;
             
-            return CrawledPageEntity.builder()
+            CrawledPageEntity entity = CrawledPageEntity.builder()
                 .url(crawlUrl.getUrl())
                 .title(title)
                 .content(content)
@@ -95,10 +102,12 @@ public class BasicCrawler implements CrawlerWorker {
                 .parentUrl(crawlUrl.getParentUrl())
                 .crawlerInstanceId(crawlUrl.getAssignedTo())
                 .build();
-                
+            pageRepository.save(entity);
+            return entity;
+
         } catch (IOException e) {
             log.error("Error crawling URL: {}", crawlUrl.getUrl(), e);
-            return CrawledPageEntity.builder()
+            CrawledPageEntity entity = CrawledPageEntity.builder()
                 .url(crawlUrl.getUrl())
                 .sessionId(crawlUrl.getSessionId())
                 .statusCode(0)
@@ -109,10 +118,12 @@ public class BasicCrawler implements CrawlerWorker {
                 .parentUrl(crawlUrl.getParentUrl())
                 .crawlerInstanceId(crawlUrl.getAssignedTo())
                 .build();
+            pageRepository.save(entity);
+            return entity;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Crawling interrupted for URL: {}", crawlUrl.getUrl(), e);
-            return CrawledPageEntity.builder()
+            CrawledPageEntity entity = CrawledPageEntity.builder()
                 .url(crawlUrl.getUrl())
                 .sessionId(crawlUrl.getSessionId())
                 .statusCode(0)
@@ -123,6 +134,8 @@ public class BasicCrawler implements CrawlerWorker {
                 .parentUrl(crawlUrl.getParentUrl())
                 .crawlerInstanceId(crawlUrl.getAssignedTo())
                 .build();
+            pageRepository.save(entity);
+            return entity;
         }
     }
 
