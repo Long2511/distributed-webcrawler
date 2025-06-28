@@ -1,65 +1,123 @@
 version: '3.8'
 
 services:
-  # MongoDB for storing crawled data
+  # MongoDB - Stores crawled data and session information
   mongodb:
-    image: mongo:5.0
+    image: mongo:6.0
     container_name: webcrawler-mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
     environment:
       MONGO_INITDB_DATABASE: webcrawler
+    command: mongod --bind_ip_all --logpath /var/log/mongodb/mongod.log --logappend
     volumes:
       - mongodb_data:/data/db
+      - mongodb_logs:/var/log/mongodb
     networks:
       - webcrawler-network
 
-  # Redis for URL frontier and coordination
+  # Redis - URL frontier and distributed coordination
   redis:
     image: redis:7-alpine
     container_name: webcrawler-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes --bind 0.0.0.0 --protected-mode no
     volumes:
       - redis_data:/data
     networks:
       - webcrawler-network
 
-  # Zookeeper for Kafka
+  # Zookeeper - Required for Kafka
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.4.0
     container_name: webcrawler-zookeeper
-    ports:
-      - "2181:2181"
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
     networks:
       - webcrawler-network
 
-  # Kafka for distributed messaging
+  # Kafka - Distributed task coordination
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.4.0
     container_name: webcrawler-kafka
-    ports:
-      - "9092:9092"
+    restart: unless-stopped
     depends_on:
       - zookeeper
+    ports:
+      - "9092:9092"    # Internal port
+      - "19092:19092"  # External port
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      # Configure listeners for both internal and external access
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      # Tell clients which address to use after they connect
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://172.16.128.246:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      webcrawler-network:
+        aliases:
+          - kafka
+
+  # Redis Commander - Web UI for Redis (optional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: webcrawler-redis-ui
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
     networks:
       - webcrawler-network
+    depends_on:
+      - redis
 
-volumes:
-  mongodb_data:
-    driver: local
-  redis_data:
-    driver: local
+  # Mongo Express - Web UI for MongoDB (optional)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: webcrawler-mongo-ui
+    restart: unless-stopped
+    ports:
+      - "8083:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: pass
+    networks:
+      - webcrawler-network
+    depends_on:
+      - mongodb
 
 networks:
   webcrawler-network:
     driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_logs:
+    driver: local
+  redis_data:
+    driver: local
+  kafka_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+
+
+
+
+
