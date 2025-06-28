@@ -105,7 +105,7 @@ if exist config\worker-node.properties (
     echo spring.kafka.consumer.auto-offset-reset=earliest >> config\worker-node-local.properties
     echo. >> config\worker-node-local.properties
     echo # Kafka topics >> config\worker-node-local.properties
-    echo webcrawler.kafka.topics.crawl-tasks=webcrawler.tasks >> config\worker-node-local.properties
+    echo webcrawler.kafka.topics.crawl-tasks=webcrawler.tasks>>config\worker-node-local.properties
     echo webcrawler.kafka.topics.partition-count=10 >> config\worker-node-local.properties
     echo webcrawler.kafka.topics.replication-factor=1 >> config\worker-node-local.properties
     echo. >> config\worker-node-local.properties

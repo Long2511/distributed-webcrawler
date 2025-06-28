@@ -13,12 +13,14 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
 @EnableKafka
+@EnableScheduling // enable @Scheduled in services
 public class KafkaConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
