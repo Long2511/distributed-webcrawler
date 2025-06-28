@@ -1,5 +1,6 @@
 package com.ouroboros.webcrawler.config;
 
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -11,6 +12,7 @@ import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.config.TopicBuilder;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +26,15 @@ public class KafkaConfig {
 
     @Value("${spring.kafka.consumer.group-id}")
     private String groupId;
+
+    @Value("${webcrawler.kafka.topics.crawl-tasks}")
+    private String crawlTasksTopic;
+
+    @Value("${webcrawler.kafka.topics.partition-count}")
+    private int partitionCount;
+
+    @Value("${webcrawler.kafka.topics.replication-factor}")
+    private short replicationFactor;
 
     @Bean
     public ProducerFactory<String, String> producerFactory() {
@@ -62,5 +73,13 @@ public class KafkaConfig {
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
 
         return factory;
+    }
+
+    @Bean
+    public NewTopic crawlTasksTopic() {
+        return TopicBuilder.name(crawlTasksTopic)
+            .partitions(partitionCount)
+            .replicas(replicationFactor)
+            .build();
     }
 }
