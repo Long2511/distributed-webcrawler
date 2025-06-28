@@ -38,3 +38,6 @@ build/
 
 ### Mac OS ###
 .DS_Store
+logs/webcrawler-master.log
+logs/webcrawler-master.log.2025-06-28.0.gz
+logs/webcrawler-master.log
