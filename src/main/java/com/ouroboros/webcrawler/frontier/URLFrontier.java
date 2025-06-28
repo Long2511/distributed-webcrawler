@@ -86,14 +86,14 @@ public class URLFrontier {
     public List<CrawlUrl> getNextUrls(String machineId, int batchSize) {
         List<CrawlUrl> result = new ArrayList<>();
         
-        log.debug("Getting next URLs for machine: {}, batchSize: {}", machineId, batchSize);
-        
+        log.info("Getting next URLs for machine: {}, batchSize: {}", machineId, batchSize);
+
         // Get all session-specific queue keys
         Set<String> queueKeys = redisTemplate.keys(URL_QUEUE_KEY_PREFIX + "*");
-        log.debug("Found {} queue keys: {}", queueKeys != null ? queueKeys.size() : 0, queueKeys);
-        
+        log.info("Found {} queue keys: {}", queueKeys != null ? queueKeys.size() : 0, queueKeys);
+
         if (queueKeys == null || queueKeys.isEmpty()) {
-            log.debug("No queue keys found, returning empty result");
+            log.info("No queue keys found, returning empty result");
             return result;
         }
         
@@ -107,11 +107,11 @@ public class URLFrontier {
             String sessionId = queueKey.substring(URL_QUEUE_KEY_PREFIX.length());
             int toTake = Math.min(urlsPerSession, remaining);
             
-            log.debug("Processing session queue: {}, sessionId: {}, toTake: {}", queueKey, sessionId, toTake);
-            
+            log.info("Processing session queue: {}, sessionId: {}, toTake: {}", queueKey, sessionId, toTake);
+
             Set<Object> urlObjects = crawlUrlRepository.getTopUrls(sessionId, toTake * 2); // Get more for filtering
             
-            log.debug("Retrieved {} URL objects from repository for session {}", 
+            log.info("Retrieved {} URL objects from repository for session {}",
                      urlObjects != null ? urlObjects.size() : 0, sessionId);
             
             if (urlObjects == null || urlObjects.isEmpty()) {
@@ -148,7 +148,7 @@ public class URLFrontier {
                 }
                 
                 // Check if this URL is already being processed
-                String processingKey = getProcessingKey(crawlUrl.getSessionId()) + crawlUrl.getUrl();
+                String processingKey = getProcessingKey(crawlUrl.getSessionId()) + ":" + crawlUrl.getUrl();
                 if (redisTemplate.opsForValue().get(processingKey) != null) {
                     continue; // Skip URLs already being processed
                 }
@@ -179,7 +179,7 @@ public class URLFrontier {
     @Transactional
     public void markCompleted(String url, String sessionId) {
         // Remove from processing set
-        String processingKey = getProcessingKey(sessionId) + url;
+        String processingKey = getProcessingKey(sessionId) + ":" + url;
         redisTemplate.delete(processingKey);
         
         log.debug("Marked URL as completed: {} for session {}", url, sessionId);
@@ -191,7 +191,7 @@ public class URLFrontier {
     @Transactional
     public void markFailed(String url, String errorMessage, String sessionId) {
         // Remove from processing set
-        String processingKey = getProcessingKey(sessionId) + url;
+        String processingKey = getProcessingKey(sessionId) + ":" + url;
         String machineId = (String) redisTemplate.opsForValue().get(processingKey);
         redisTemplate.delete(processingKey);
         

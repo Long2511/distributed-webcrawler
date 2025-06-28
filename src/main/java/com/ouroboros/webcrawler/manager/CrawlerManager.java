@@ -184,16 +184,17 @@ public class CrawlerManager {
     @Async
     public CompletableFuture<Void> processCrawlJob(CrawlUrl crawlUrl) {
         try {
-            log.debug("Processing crawl job for URL: {}", crawlUrl.getUrl());
-            
+            log.info("Processing crawl job for URL: {}", crawlUrl.getUrl());
+
             // Crawl the URL
             CrawledPageEntity crawledPage = crawlerWorker.crawl(crawlUrl);
-            
+            log.info("Crawl completed for URL: {}, status: {}", crawlUrl.getUrl(), crawledPage.getStatusCode());
+
             // Mark URL as completed in frontier
             if (crawledPage.getStatusCode() == 200) {
                 urlFrontier.markCompleted(crawlUrl.getUrl(), crawlUrl.getSessionId());
                 
-                log.debug("Crawl successful for URL: {}, depth: {}, maxDepth: {}", 
+                log.info("Crawl successful for URL: {}, depth: {}, maxDepth: {}",
                          crawlUrl.getUrl(), crawlUrl.getDepth(), maxDepth);
                 
                 // Extract and queue new URLs if within depth limit
@@ -242,24 +243,24 @@ public class CrawlerManager {
     @Scheduled(fixedDelay = 5000) // Every 5 seconds
     public void requestWork() {
         if (!running) {
-            log.debug("CrawlerManager not running, skipping work request");
+            log.info("CrawlerManager not running, skipping work request");
             return;
         }
         
-        log.debug("Requesting work from frontier...");
-        
+        log.info("Requesting work from frontier...");
+
         try {
             // Get URLs from frontier
             List<CrawlUrl> urls = urlFrontier.getNextUrls(instanceConfig.getMachineId(), batchSize);
             
             if (!urls.isEmpty()) {
-                log.debug("Retrieved {} URLs from frontier", urls.size());
-                
+                log.info("Retrieved {} URLs from frontier", urls.size());
+
                 for (CrawlUrl url : urls) {
                     processCrawlJob(url);
                 }
             } else {
-                log.debug("No URLs available from frontier");
+                log.info("No URLs available from frontier");
             }
             
         } catch (Exception e) {
