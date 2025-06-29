@@ -10,6 +10,7 @@ import com.ouroboros.webcrawler.frontier.URLFrontier;
 import com.ouroboros.webcrawler.model.CrawlJob;
 import com.ouroboros.webcrawler.repository.CrawlSessionRepository;
 import com.ouroboros.webcrawler.repository.CrawledPageRepository;
+import com.ouroboros.webcrawler.repository.CrawlUrlRepository;
 import com.ouroboros.webcrawler.worker.CrawlerWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -46,6 +51,9 @@ public class CrawlerManager {
 
     @Autowired
     private CrawledPageRepository pageRepository;
+
+    @Autowired
+    private CrawlUrlRepository crawlUrlRepository;
 
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
@@ -72,6 +80,9 @@ public class CrawlerManager {
 
     private static final String WORKER_REGISTRY_KEY = "workers:active";
     private static final String HEARTBEAT_KEY_PREFIX = "heartbeat:";
+    private static final String URL_PROCESSING_KEY_PREFIX = "processing:";
+    private static final String URL_QUEUE_KEY_PREFIX = "queue:";
+    private static final String URL_VISITED_KEY_PREFIX = "visited:";
 
     @PostConstruct
     public void initialize() {
@@ -136,6 +147,103 @@ public class CrawlerManager {
         }
     }
 
+    public boolean pauseCrawlSession(String sessionId) {
+        log.info("Pausing crawl session: {}", sessionId);
+        
+        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
+        if (session != null && "RUNNING".equals(session.getStatus())) {
+            session.setStatus("PAUSED");
+            session.setPausedAt(LocalDateTime.now());
+            sessionRepository.save(session);
+
+            // Clean up Redis processing keys for this session
+            Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
+            if (processingKeys != null && !processingKeys.isEmpty()) {
+                redisTemplate.delete(processingKeys);
+                log.debug("Cleaned up {} processing keys for session {}", processingKeys.size(), sessionId);
+            }
+
+            // Clean up Kafka - send a special control message to stop processing
+            try {
+                CrawlJob controlJob = CrawlJob.builder()
+                    .sessionId(sessionId)
+                    .status("PAUSE")
+                    .createdAt(LocalDateTime.now())
+                    .build();
+                String message = objectMapper.writeValueAsString(controlJob);
+                kafkaTemplate.send(crawlTasksTopic, message);
+                log.debug("Sent pause control message to Kafka for session: {}", sessionId);
+            } catch (JsonProcessingException e) {
+                log.error("Error sending pause control message to Kafka", e);
+            }
+
+            return true;
+        }
+        return false;
+    }
+
+    public boolean resumeCrawlSession(String sessionId) {
+        log.info("Resuming crawl session: {}", sessionId);
+        
+        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
+        if (session != null && "PAUSED".equals(session.getStatus())) {
+            session.setStatus("RUNNING");
+            session.setResumedAt(LocalDateTime.now());
+            sessionRepository.save(session);
+            
+            // Publish work available notification to restart crawling
+            publishWorkAvailable(sessionId);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean deleteCrawlSession(String sessionId) {
+        log.info("Deleting crawl session: {}", sessionId);
+        
+        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
+        if (session != null) {
+            // Delete all crawled pages for this session
+            pageRepository.deleteBySessionId(sessionId);
+            
+            // Delete all URLs for this session from MongoDB
+            crawlUrlRepository.deleteBySessionId(sessionId);
+            
+            // Clean up Redis keys
+            String queueKey = URL_QUEUE_KEY_PREFIX + sessionId;
+            String visitedKey = URL_VISITED_KEY_PREFIX + sessionId;
+            Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
+            
+            // Delete Redis keys
+            redisTemplate.delete(queueKey);
+            redisTemplate.delete(visitedKey);
+            if (processingKeys != null && !processingKeys.isEmpty()) {
+                redisTemplate.delete(processingKeys);
+            }
+            
+            // Clean up Kafka - send a special control message to stop processing
+            try {
+                CrawlJob controlJob = CrawlJob.builder()
+                    .sessionId(sessionId)
+                    .status("DELETE")
+                    .createdAt(LocalDateTime.now())
+                    .build();
+                String message = objectMapper.writeValueAsString(controlJob);
+                kafkaTemplate.send(crawlTasksTopic, message);
+                log.debug("Sent delete control message to Kafka for session: {}", sessionId);
+            } catch (JsonProcessingException e) {
+                log.error("Error sending delete control message to Kafka", e);
+            }
+            
+            // Delete the session itself
+            sessionRepository.deleteById(sessionId);
+            
+            log.info("Successfully deleted crawl session and all related data: {}", sessionId);
+            return true;
+        }
+        return false;
+    }
+
     @KafkaListener(topics = "${webcrawler.kafka.topics.crawl-tasks:webcrawler.tasks}")
     public void handleCrawlTask(String message, Acknowledgment ack) {
         try {
@@ -143,22 +251,25 @@ public class CrawlerManager {
             
             CrawlJob job = objectMapper.readValue(message, CrawlJob.class);
             
-            // Handle "work available" notifications - just trigger work request
-            if ("WORK_AVAILABLE".equals(job.getStatus()) && job.getUrl() == null) {
-                log.debug("Received work available notification for session: {}", job.getSessionId());
-                // Trigger immediate work request for this worker
-                requestWork();
+            // Handle control messages
+            if (job.getUrl() == null) {
+                if ("WORK_AVAILABLE".equals(job.getStatus())) {
+                    log.debug("Received work available notification for session: {}", job.getSessionId());
+                    requestWork();
+                } else if ("PAUSE".equals(job.getStatus())) {
+                    log.debug("Received pause control message for session: {}", job.getSessionId());
+                    // Stop processing URLs for this session
+                    stopProcessingSession(job.getSessionId());
+                } else if ("DELETE".equals(job.getStatus())) {
+                    log.debug("Received delete control message for session: {}", job.getSessionId());
+                    // Stop processing URLs for this session
+                    stopProcessingSession(job.getSessionId());
+                }
                 ack.acknowledge();
                 return;
             }
             
             // Handle actual crawl jobs with URLs
-            if (job.getUrl() == null) {
-                log.warn("Received crawl job with null URL, skipping: {}", message);
-                ack.acknowledge();
-                return;
-            }
-            
             CrawlUrl crawlUrl = CrawlUrl.builder()
                 .url(job.getUrl())
                 .sessionId(job.getSessionId())
@@ -332,6 +443,43 @@ public class CrawlerManager {
 
     public List<CrawledPageEntity> getSessionPages(String sessionId) {
         return pageRepository.findBySessionId(sessionId);
+    }
+
+    public List<Object> getSessionPages(String sessionId, int page, int size) {
+        // This would need to be implemented with pagination
+        // For now, return all pages
+        List<CrawledPageEntity> pages = pageRepository.findBySessionId(sessionId);
+        return new ArrayList<>(pages);
+    }
+
+    public Object getSessionStats(String sessionId) {
+        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
+        if (session == null) {
+            return null;
+        }
+        
+        // Get additional stats
+        long totalPages = pageRepository.countBySessionId(sessionId);
+        long successfulPages = pageRepository.countBySessionIdAndStatusCode(sessionId, 200);
+        long failedPages = totalPages - successfulPages;
+        
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("session", session);
+        stats.put("totalPages", totalPages);
+        stats.put("successfulPages", successfulPages);
+        stats.put("failedPages", failedPages);
+        stats.put("successRate", totalPages > 0 ? (double) successfulPages / totalPages : 0.0);
+        
+        return stats;
+    }
+
+    private void stopProcessingSession(String sessionId) {
+        // Clean up any in-progress tasks for this session
+        Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
+        if (processingKeys != null && !processingKeys.isEmpty()) {
+            redisTemplate.delete(processingKeys);
+            log.debug("Cleaned up {} processing keys for session {}", processingKeys.size(), sessionId);
+        }
     }
 }
 

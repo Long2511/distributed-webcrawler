@@ -65,4 +65,10 @@ public class CrawlUrlRepository {
         Long count = redisTemplate.opsForZSet().count(queueKey, 0, Double.MAX_VALUE);
         return count != null ? count : 0L;
     }
+
+    public void deleteBySessionId(String sessionId) {
+        String queueKey = getQueueKey(sessionId);
+        redisTemplate.delete(queueKey);
+        log.info("Deleted all URLs for session: {}", sessionId);
+    }
 }

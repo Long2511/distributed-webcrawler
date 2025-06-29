@@ -21,12 +21,14 @@ public class CrawlSessionEntity {
     private String id;
     private String name;
     private List<String> seedUrls;
-    private String status; // PENDING, RUNNING, COMPLETED, FAILED, STOPPED
+    private String status; // PENDING, RUNNING, PAUSED, COMPLETED, FAILED, STOPPED
     private int maxDepth;
     private long maxPages;
     private String createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime startedAt;
+    private LocalDateTime pausedAt;
+    private LocalDateTime resumedAt;
     private LocalDateTime completedAt;
     private long totalPagesCrawled;
     private long totalPagesDiscovered;
@@ -36,4 +38,7 @@ public class CrawlSessionEntity {
     private String userAgent;
     private int politenessDelay;
     private boolean respectRobotsTxt;
+    private String priority; // HIGH, MEDIUM, LOW
+    private String description;
+    private boolean autoResume; // Auto-resume on worker reconnection
 }

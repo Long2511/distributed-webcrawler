@@ -6,6 +6,37 @@ A highly scalable distributed web crawler implementation with Docker-based deplo
 
 This project is a production-ready distributed web crawler system designed for horizontal scaling across multiple machines. The system uses a master-worker architecture where the master node hosts all central services (MongoDB, Redis, Kafka) and coordinates crawling tasks, while worker nodes connect remotely to perform distributed crawling.
 
+## 🚀 New Features (Latest Update)
+
+### Priority-Based Crawling
+- **Priority Levels**: HIGH, MEDIUM, LOW priority selection for crawl sessions
+- **Smart Queue Management**: Priority-based URL frontier with Redis sorted sets
+- **UI Priority Selection**: Choose priority when creating new crawl sessions
+
+### Enhanced Session Management
+- **Pause/Resume**: Pause running sessions and resume them later
+- **Delete Sessions**: Permanently delete sessions and all associated data
+- **Session Details**: Comprehensive session statistics and progress tracking
+- **Auto-Resume**: Automatic session resumption when workers reconnect
+
+### Fault Tolerance & Error Recovery
+- **Circuit Breaker Pattern**: Domain-based circuit breakers to handle failing sites
+- **Retry Logic**: Configurable retry attempts with exponential backoff
+- **Error Classification**: Distinguish between transient and permanent failures
+- **Health Monitoring**: Real-time health checks for all system components
+
+### Scalability Features
+- **Dynamic Worker Management**: Automatic worker registration and health monitoring
+- **Load Balancing**: Intelligent workload distribution across available workers
+- **Auto-Scaling**: Automatic scale up/down based on workload
+- **Worker Timeout Handling**: Detect and handle unresponsive workers
+
+### Enhanced UI
+- **Modern Dashboard**: Bootstrap 5 with real-time metrics and charts
+- **Session Management**: Comprehensive session control interface
+- **Priority Visualization**: Color-coded priority levels and progress bars
+- **Real-time Monitoring**: Live updates of crawl progress and system health
+
 ## Architecture
 
 ### Master-Worker Model
@@ -35,22 +66,31 @@ This project is a production-ready distributed web crawler system designed for h
   - Data persistence with Docker volumes
 
 - **Intelligent Crawling**
-  - Prioritized URL queue management
-  - Configurable crawl policies
-  - Domain-specific rate limiting
-  - URL normalization and deduplication
+  - **Priority-based URL queue management**
+  - **Configurable crawl policies with pause/resume**
+  - **Domain-specific rate limiting with circuit breakers**
+  - **URL normalization and deduplication**
+  - **Retry logic with exponential backoff**
 
 - **Comprehensive Monitoring**
   - Real-time crawl session monitoring
-  - System health dashboards
+  - System health dashboards with fault tolerance metrics
   - Database web interfaces
-  - Detailed crawl statistics
+  - Detailed crawl statistics and worker status
 
-- **Easy Management**
-  - Web-based session control
-  - Start/pause/resume/stop operations
-  - Configuration through UI
-  - Multi-session support
+- **Enhanced Session Management**
+  - **Start/pause/resume/stop operations**
+  - **Session deletion with data cleanup**
+  - **Priority-based session scheduling**
+  - **Auto-resume on worker reconnection**
+  - **Multi-session support with isolation**
+
+- **Fault Tolerance & Scalability**
+  - **Circuit breaker pattern for failing domains**
+  - **Configurable retry attempts and delays**
+  - **Dynamic worker management and health monitoring**
+  - **Load balancing across available workers**
+  - **Automatic scale up/down based on workload**
 
 ## Technology Stack
 
@@ -61,6 +101,8 @@ This project is a production-ready distributed web crawler system designed for h
 - **Web Framework**: Spring MVC, Thymeleaf
 - **Web Crawler**: JSoup for HTML parsing
 - **Management UIs**: Redis Commander, Mongo Express
+- **Fault Tolerance**: Custom circuit breaker implementation
+- **Monitoring**: Spring Actuator with custom metrics
 
 ## Quick Start
 
@@ -126,10 +168,100 @@ This project is a production-ready distributed web crawler system designed for h
 3. **Verify connection**
    Check the master dashboard to see connected workers.
 
+## Usage
+
+### Creating and Managing Crawl Sessions
+
+1. **Access the Web Dashboard**
+   - Open http://localhost:8080 in your browser
+   - Navigate to the main dashboard or sessions page
+
+2. **Start a New Crawl Session**
+   - Click "New Session" or use the Quick Crawl form
+   - Configure crawl parameters:
+     - **Session name and description**
+     - **Seed URLs** (starting points)
+     - **Priority level** (HIGH, MEDIUM, LOW)
+     - **Maximum crawl depth**
+     - **Maximum pages to crawl**
+     - **Domain restrictions**
+     - **Rate limiting settings**
+   - Click "Start Crawling"
+
+3. **Monitor Active Sessions**
+   - View real-time crawl progress with progress bars
+   - Monitor URL queue status and worker activity
+   - Check fault tolerance metrics and circuit breaker status
+   - View scalability metrics and worker distribution
+
+4. **Session Control**
+   - **Pause**: Temporarily stop crawling (can be resumed)
+   - **Resume**: Continue a paused session
+   - **Stop**: Permanently end the session
+   - **Delete**: Remove session and all associated data
+
+### Priority-Based Crawling
+
+- **HIGH Priority**: Crawled first, useful for important or time-sensitive content
+- **MEDIUM Priority**: Standard crawling priority (default)
+- **LOW Priority**: Background crawling for less critical content
+
+### Fault Tolerance Features
+
+- **Automatic Retries**: Failed URLs are automatically retried with exponential backoff
+- **Circuit Breakers**: Domains with repeated failures are temporarily blocked
+- **Health Monitoring**: Real-time monitoring of system components
+- **Error Recovery**: Automatic recovery from transient failures
+
+### Scalability Features
+
+- **Dynamic Workers**: Add or remove worker nodes without stopping the system
+- **Load Balancing**: Work is automatically distributed across available workers
+- **Auto-Scaling**: System automatically adjusts based on workload
+- **Worker Health**: Automatic detection and handling of unresponsive workers
+
+## Configuration
+
+### Fault Tolerance Settings
+
+```properties
+# Retry configuration
+webcrawler.fault-tolerance.max-retries=3
+webcrawler.fault-tolerance.retry-delay-ms=5000
+
+# Circuit breaker configuration
+webcrawler.fault-tolerance.circuit-breaker.threshold=5
+webcrawler.fault-tolerance.circuit-breaker.timeout-ms=30000
+```
+
+### Scalability Settings
+
+```properties
+# Worker management
+webcrawler.scalability.worker-timeout-seconds=120
+webcrawler.scalability.max-workers-per-session=10
+webcrawler.scalability.load-balancing.enabled=true
+```
+
+### Crawler Settings
+
+```properties
+# Basic crawler settings
+webcrawler.max-depth=10
+webcrawler.politeness.delay=500
+webcrawler.politeness.respect-robots-txt=true
+webcrawler.batch.size=20
+
+# Priority settings
+webcrawler.frontier.adaptive-allocation=true
+webcrawler.frontier.batch-size=20
+```
+
 ## Network Configuration
 
 ### Ports Used
 - **8080**: Main web application
+- **8081**: Worker node application
 - **8082**: Redis Commander web UI
 - **8083**: Mongo Express web UI
 - **27017**: MongoDB database
@@ -170,204 +302,50 @@ docker-compose up -d
 docker-compose logs -f [service-name]
 ```
 
-## Usage
+## Monitoring and Troubleshooting
 
-### Creating and Managing Crawl Sessions
+### Health Checks
 
-1. **Access the Web Dashboard**
-   - Open http://localhost:8080 in your browser
-   - Navigate to the main dashboard
-
-2. **Start a New Crawl Session**
-   - Click "New Session" or navigate to session management
-   - Configure crawl parameters:
-     - Session name and description
-     - Seed URLs (starting points)
-     - Maximum crawl depth
-     - Domain restrictions
-     - Rate limiting settings
-   - Click "Start Crawling"
-
-3. **Monitor Active Sessions**
-   - View real-time crawl progress
-   - Monitor URL queue status
-   - Check worker activity and distribution
-   - View crawled page statistics
-
-4. **Session Control**
-   - **Pause**: Temporarily stop crawling (can be resumed)
-   - **Resume**: Continue a paused session
-   - **Stop**: Permanently end the session
-   - **View Details**: Examine session statistics and data
-
-### Multi-Machine Operations
-
-- **Worker Management**: View connected workers on the dashboard
-- **Load Distribution**: Monitor task distribution across workers
-- **Health Monitoring**: Check worker connectivity and performance
-- **Scaling**: Add or remove workers dynamically
-
-### Database Access
-
-- **Redis Commander** (http://localhost:8082): 
-  - View URL queues and crawl state
-  - Monitor Redis performance
-  - Clear data if needed
-
-- **Mongo Express** (http://localhost:8083):
-  - Browse crawled page data
-  - Query session information
-  - Export crawl results
-
-## Configuration
-
-### Master Node Configuration
-Located in `config/master-node.properties`:
-- Automatically updated by setup script with detected IP
-- Central services connection settings
-- Web UI port configuration
-
-### Worker Node Configuration  
-Located in `config/worker-node.properties`:
-- Master node connection settings
-- Worker-specific settings
-- Updated by setup script with master IP
-
-### Application Settings
-Main configuration in `src/main/resources/application.properties`:
-- Default application settings
-- Overridden by node-specific config files
-
-## Troubleshooting
+- **System Health**: `/api/monitor/health`
+- **Worker Status**: `/api/monitor/workers`
+- **Session Stats**: `/api/monitor/sessions`
+- **Fault Tolerance**: `/api/monitor/fault-tolerance`
+- **Scalability**: `/api/monitor/scalability`
 
 ### Common Issues
 
-1. **Kafka Connection Problems**
-   - Check if Kafka is using correct external IP (should be 19092)
-   - Ensure firewall allows port 19092
-   - See `KAFKA_TROUBLESHOOTING.md` for detailed guide
+1. **Worker Connection Issues**
+   - Check firewall settings
+   - Verify master IP address
+   - Check network connectivity
 
-2. **Worker Connection Issues**
-   - Verify master IP is correctly configured
-   - Check network connectivity between machines
-   - Ensure all required ports are open
+2. **Crawl Failures**
+   - Check circuit breaker status
+   - Review retry configuration
+   - Monitor error logs
 
-3. **Docker Service Startup**
-   - Run `docker-compose ps` to check service status
-   - Use `docker-compose logs [service]` to view error logs
-   - Restart services with `docker-compose restart`
+3. **Performance Issues**
+   - Adjust batch sizes
+   - Check worker count
+   - Monitor resource usage
 
-4. **Application Startup**
-   - Check logs in `logs/` directory
-   - Verify Java version compatibility
-   - Ensure Maven build completed successfully
+## API Endpoints
 
-### Data Cleanup
+### Session Management
+- `POST /api/crawler/sessions` - Create new session
+- `GET /api/sessions` - List all sessions
+- `GET /api/sessions/{id}` - Get session details
+- `POST /api/sessions/{id}/pause` - Pause session
+- `POST /api/sessions/{id}/resume` - Resume session
+- `POST /api/sessions/{id}/stop` - Stop session
+- `DELETE /api/sessions/{id}` - Delete session
 
-```cmd
-# Clear Redis data
-docker exec webcrawler-redis redis-cli FLUSHALL
-
-# Clear Kafka topics
-docker exec webcrawler-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic webcrawler.tasks
-
-# Reset all Docker volumes
-docker-compose down -v
-```
-
-## Development
-
-### Building from Source
-
-```cmd
-# Build the application
-mvn clean package
-
-# Run tests
-mvn test
-
-# Generate documentation
-mvn javadoc:javadoc
-```
-
-### Project Structure
-
-```
-distributed-webcrawler/
-├── src/main/java/com/ouroboros/webcrawler/
-│   ├── WebCrawlerApplication.java        # Main application entry
-│   ├── config/                           # Configuration classes
-│   ├── controller/                       # Web controllers
-│   ├── entity/                          # Data entities
-│   ├── frontier/                        # URL frontier management
-│   ├── manager/                         # Crawler coordination
-│   ├── worker/                          # Worker node implementation
-│   └── ...
-├── config/                              # Node-specific configurations
-│   ├── master-node.properties
-│   └── worker-node.properties
-├── docker-compose.yml                   # Docker service definitions
-├── setup-master.bat                     # Master node setup script
-├── setup-worker.bat                     # Worker node setup script
-└── ...
-```
-
-## Scaling and Performance
-
-### Horizontal Scaling
-
-The system is designed for easy horizontal scaling:
-
-1. **Add Worker Nodes**
-   - Run `setup-worker.bat` on additional machines
-   - Workers automatically connect and start processing tasks
-   - No configuration changes needed on master node
-
-2. **Increase Processing Capacity**
-   - Deploy multiple worker instances per machine
-   - Configure different ports for multiple workers
-   - Load balancing handled automatically by Kafka
-
-3. **Infrastructure Scaling**
-   - **Kafka Partitions**: Increase partitions for higher throughput
-   - **Redis Clustering**: For very large URL frontiers
-   - **MongoDB Sharding**: For massive crawl data storage
-
-### Performance Optimization
-
-- **Concurrent Processing**: Configurable worker thread pools
-- **Efficient Data Structures**: Redis-based URL deduplication
-- **Batch Processing**: Grouped database operations
-- **Connection Pooling**: Optimized HTTP client configuration
-
-## Architecture Details
-
-### Master Node Architecture
-- **Central Coordination**: Manages all crawl sessions and worker coordination
-- **Infrastructure Services**: Hosts MongoDB, Redis, and Kafka in Docker containers
-- **Web Interface**: Provides management UI and REST APIs
-- **Automatic Configuration**: IP detection and service configuration
-
-### Worker Node Architecture
-- **Stateless Design**: Workers maintain no persistent state
-- **Task Processing**: Connects to master services for task retrieval
-- **Fault Tolerance**: Automatic reconnection and task retry
-- **Scalable Deployment**: Easy addition/removal of workers
-
-### Data Flow
-1. **Session Creation**: User creates crawl session via web UI
-2. **Task Distribution**: Master breaks down URLs into tasks
-3. **Worker Processing**: Workers fetch tasks from Kafka queues
-4. **Content Extraction**: Workers crawl pages and extract data
-5. **Result Storage**: Crawled data stored in MongoDB
-6. **URL Discovery**: New URLs added to Redis frontier
-7. **Progress Tracking**: Real-time updates to web dashboard
-
-### Service Communication
-- **Kafka**: Task distribution and worker coordination
-- **Redis**: URL frontier management and caching
-- **MongoDB**: Persistent data storage and session management
-- **HTTP REST**: Web UI and API communication
+### Monitoring
+- `GET /api/monitor/metrics` - System metrics
+- `GET /api/monitor/health` - Health status
+- `GET /api/monitor/workers` - Worker status
+- `GET /api/monitor/fault-tolerance` - Fault tolerance stats
+- `GET /api/monitor/scalability` - Scalability stats
 
 ## Contributing
 
@@ -384,11 +362,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For issues and questions:
-- Check the troubleshooting section above
-- Review the `KAFKA_TROUBLESHOOTING.md` guide
-- Check the `PROJECT_REVIEW.md` for architectural details
-- Create an issue in the project repository
-
----
-
-**Note**: This system is designed for educational and research purposes. Please respect robots.txt files and website terms of service when crawling.
+1. Check the troubleshooting section
+2. Review the logs in the `logs/` directory
+3. Check the health endpoints
+4. Create an issue in the repository

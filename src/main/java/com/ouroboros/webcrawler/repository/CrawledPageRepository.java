@@ -27,6 +27,8 @@ public interface CrawledPageRepository extends MongoRepository<CrawledPageEntity
     @Query(value = "{ 'sessionId': ?0 }", fields = "{ 'url': 1, 'statusCode': 1, 'contentLength': 1 }")
     List<DomainStats> getStatsForSession(String sessionId);
 
+    void deleteBySessionId(String sessionId);
+
     interface DomainStats {
         String getUrl();
         int getStatusCode();

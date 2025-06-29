@@ -85,6 +85,9 @@ public class CrawlerController {
             .userAgent("Ouroboros Web Crawler/1.0")
             .politenessDelay(500)
             .respectRobotsTxt(true)
+            .priority(request.getPriority() != null ? request.getPriority() : "MEDIUM")
+            .description("Quick crawl session")
+            .autoResume(true)
             .build();
         
         String sessionId = crawlerManager.startCrawlSession(session);
@@ -120,6 +123,7 @@ public class CrawlerController {
         private String url;
         private Integer maxDepth;
         private Long maxPages;
+        private String priority;
 
         // Getters and setters
         public String getUrl() { return url; }
@@ -128,5 +132,7 @@ public class CrawlerController {
         public void setMaxDepth(Integer maxDepth) { this.maxDepth = maxDepth; }
         public Long getMaxPages() { return maxPages; }
         public void setMaxPages(Long maxPages) { this.maxPages = maxPages; }
+        public String getPriority() { return priority; }
+        public void setPriority(String priority) { this.priority = priority; }
     }
 }
