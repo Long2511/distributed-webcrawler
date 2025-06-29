@@ -13,11 +13,10 @@
     <artifactId>webcrawler</artifactId>
     <version>1.0-SNAPSHOT</version>
     <name>Distributed Web Crawler</name>
-    <description>A distributed web crawler system</description>
+    <description>A distributed web crawler system using Redis coordination</description>
 
     <properties>
         <java.version>11</java.version>
-        <kafka.version>3.3.1</kafka.version>
         <jsoup.version>1.15.3</jsoup.version>
         <commons-lang3.version>3.12.0</commons-lang3.version>
     </properties>
@@ -41,16 +40,11 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
         <!-- Web Crawler -->
-        <!-- Replaced crawler4j with direct JSoup usage for better control -->
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
@@ -73,11 +67,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

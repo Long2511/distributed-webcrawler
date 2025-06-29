@@ -5,16 +5,22 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
+/**
+ * Entity representing a crawled web page
+ * Stores the result of crawling a URL including content and metadata
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "crawled_pages")
+@CompoundIndex(name = "url_session_unique", def = "{'url': 1, 'sessionId': 1}", unique = true)
 public class CrawledPageEntity {
 
     @Id

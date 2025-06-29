@@ -26,8 +26,12 @@ public class CrawlUrl {
     private double priority; // Priority for crawling (higher = more important)
     private String parentUrl;
     private String assignedTo;
+    private String assignedWorker; // Worker assigned to process this URL
     private LocalDateTime assignedAt;
     private LocalDateTime discoveredAt;
+    private LocalDateTime addedAt; // When URL was added to frontier
+    private LocalDateTime completedAt; // When URL processing was completed
     private int retryCount; // Number of retry attempts
     private String lastError; // Last error message
+    private String errorMessage; // Current error message
 }

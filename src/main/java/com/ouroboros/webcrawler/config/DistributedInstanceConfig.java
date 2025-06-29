@@ -3,7 +3,9 @@ package com.ouroboros.webcrawler.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
+import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.Collections;
@@ -17,6 +19,9 @@ public class DistributedInstanceConfig {
     private String advertisedHost;
     private int heartbeatIntervalSeconds = 30;
 
+    @Value("${server.port:8080}")
+    private int serverPort;
+
     public String getMachineId() {
         if (machineId == null || machineId.trim().isEmpty()) {
             machineId = generateMachineId();
@@ -28,29 +33,61 @@ public class DistributedInstanceConfig {
         return advertisedHost;
     }
 
+    public String getWorkerAddress() {
+        if (advertisedHost != null && !advertisedHost.trim().isEmpty()) {
+            return advertisedHost + ":" + serverPort;
+        }
+        try {
+            return InetAddress.getLocalHost().getHostAddress() + ":" + serverPort;
+        } catch (Exception e) {
+            return "localhost:" + serverPort;
+        }
+    }
+
     public int getHeartbeatIntervalSeconds() {
         return heartbeatIntervalSeconds;
     }
 
     private String generateMachineId() {
         try {
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isLoopback() && ni.isUp() && ni.getHardwareAddress() != null) {
-                    byte[] mac = ni.getHardwareAddress();
+            // Generate unique worker ID: MAC_ADDRESS-PORT-TIMESTAMP
+            String macAddress = getMacAddress();
+            String timestamp = String.valueOf(System.currentTimeMillis() % 100000); // Last 5 digits
+            return String.format("%s-%d-%s", macAddress, serverPort, timestamp);
+        } catch (Exception e) {
+            // Fallback: hostname-port-random
+            try {
+                String hostname = InetAddress.getLocalHost().getHostName();
+                String random = String.valueOf(System.currentTimeMillis() % 10000);
+                return String.format("%s-%d-%s", hostname, serverPort, random);
+            } catch (Exception ex) {
+                // Ultimate fallback: random ID
+                return "worker-" + serverPort + "-" + System.currentTimeMillis();
+            }
+        }
+    }
+
+    private String getMacAddress() {
+        try {
+            NetworkInterface network = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+            if (network != null) {
+                byte[] mac = network.getHardwareAddress();
+                if (mac != null) {
                     StringBuilder sb = new StringBuilder();
                     for (int i = 0; i < mac.length; i++) {
-                        sb.append(String.format("%02X", mac[i]));
-                        if (i < mac.length - 1) {
-                            sb.append("-");
-                        }
+                        sb.append(String.format("%02X%s", mac[i], (i < mac.length - 1) ? "-" : ""));
                     }
-                    return "machine-" + sb.toString();
+                    return sb.toString();
                 }
             }
-        } catch (SocketException e) {
-            // Fall back to hostname-based ID
-            return "machine-" + System.getProperty("user.name") + "-" + System.currentTimeMillis();
+        } catch (Exception e) {
+            // Fall back to hostname
         }
-        return "machine-" + System.currentTimeMillis();
+
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 }

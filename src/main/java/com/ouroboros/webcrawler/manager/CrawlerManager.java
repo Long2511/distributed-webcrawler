@@ -1,30 +1,29 @@
 package com.ouroboros.webcrawler.manager;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ouroboros.webcrawler.config.DistributedInstanceConfig;
 import com.ouroboros.webcrawler.entity.CrawlUrl;
 import com.ouroboros.webcrawler.entity.CrawlSessionEntity;
 import com.ouroboros.webcrawler.entity.CrawledPageEntity;
 import com.ouroboros.webcrawler.frontier.URLFrontier;
-import com.ouroboros.webcrawler.model.CrawlJob;
 import com.ouroboros.webcrawler.repository.CrawlSessionRepository;
 import com.ouroboros.webcrawler.repository.CrawledPageRepository;
 import com.ouroboros.webcrawler.repository.CrawlUrlRepository;
-import com.ouroboros.webcrawler.worker.CrawlerWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.kafka.support.Acknowledgment;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -34,69 +33,102 @@ import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "webcrawler.enable.session-management", havingValue = "true", matchIfMissing = false)
 public class CrawlerManager {
 
     @Autowired
     private URLFrontier urlFrontier;
 
     @Autowired
-    private CrawlerWorker crawlerWorker;
-
-    @Autowired
     private CrawlSessionRepository sessionRepository;
-
-    @Autowired
-    private CrawledPageRepository pageRepository;
 
     @Autowired
     private CrawlUrlRepository crawlUrlRepository;
 
     @Autowired
-    private KafkaTemplate<String, String> kafkaTemplate;
+    private CrawledPageRepository pageRepository;
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
+    private RedisMessageListenerContainer messageListenerContainer;
+
+    @Autowired
     private DistributedInstanceConfig instanceConfig;
 
-    @Value("${webcrawler.kafka.topics.crawl-tasks:webcrawler.tasks}")
-    private String crawlTasksTopic;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Value("${webcrawler.batch.size:10}")
     private int batchSize;
 
-    //@Value("${webcrawler.max-depth:10}")
-    private int maxDepth = 2;
+    @Value("${webcrawler.worker.poll-interval:3000}")
+    private int pollInterval;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    @Value("${webcrawler.worker.heartbeat-interval:30000}")
+    private int heartbeatInterval;
+
+    @Value("${webcrawler.redis.work-queue-prefix:work:queue:}")
+    private String workQueuePrefix;
+
+    @Value("${webcrawler.redis.worker-heartbeat-prefix:worker:heartbeat:}")
+    private String heartbeatPrefix;
+
+    @Value("${webcrawler.redis.session-control-channel:session:control}")
+    private String sessionControlChannel;
+
+    @Value("${webcrawler.redis.work-notification-channel:work:notification}")
+    private String workNotificationChannel;
+
+    private int maxDepth = 2;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private volatile boolean running = true;
+    private boolean redisAvailable = false;
 
     private static final String WORKER_REGISTRY_KEY = "workers:active";
-    private static final String HEARTBEAT_KEY_PREFIX = "heartbeat:";
-    private static final String URL_PROCESSING_KEY_PREFIX = "processing:";
-    private static final String URL_QUEUE_KEY_PREFIX = "queue:";
-    private static final String URL_VISITED_KEY_PREFIX = "visited:";
 
     @PostConstruct
     public void initialize() {
-        log.info("Initializing CrawlerManager for instance: {}", instanceConfig.getMachineId());
-        registerWorker();
-        startHeartbeat();
-        requestWork();
+        log.info("Initializing Master CrawlerManager (Coordinator Only): {}", instanceConfig.getMachineId());
+
+        // Test Redis connection with better error handling
+        try {
+            log.info("Testing Redis connection...");
+            redisTemplate.opsForValue().set("test:connection", "test-value");
+            String testResult = (String) redisTemplate.opsForValue().get("test:connection");
+            redisTemplate.delete("test:connection");
+
+            if ("test-value".equals(testResult)) {
+                redisAvailable = true;
+                log.info("Master connected to Redis successfully - enabling coordination features");
+
+                // Subscribe to Redis channels for distributed coordination
+                subscribeToRedisChannels();
+
+                // Listen for worker completion reports
+                subscribeToWorkerReports();
+            } else {
+                log.error("Redis connection test failed - test value mismatch");
+                redisAvailable = false;
+            }
+
+        } catch (Exception e) {
+            log.error("Redis not available, cannot coordinate distributed workers: {}", e.getMessage(), e);
+            redisAvailable = false;
+        }
+
+        log.info("Master CrawlerManager initialized successfully (Redis available: {})", redisAvailable);
     }
 
     @PreDestroy
     public void shutdown() {
-        log.info("Shutting down CrawlerManager");
+        log.info("Shutting down Master CrawlerManager");
         running = false;
-        unregisterWorker();
+
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -106,9 +138,13 @@ public class CrawlerManager {
             scheduler.shutdownNow();
             Thread.currentThread().interrupt();
         }
-        crawlerWorker.shutdown();
+
+        log.info("Master CrawlerManager shutdown complete");
     }
 
+    /**
+     * Start a new crawl session with Redis-based coordination
+     */
     public String startCrawlSession(CrawlSessionEntity session) {
         log.info("Starting crawl session: {}", session.getName());
         
@@ -128,14 +164,21 @@ public class CrawlerManager {
                 .build();
             
             urlFrontier.addUrl(crawlUrl);
+
+            // Also add to Redis work queue for distributed processing
+            addToRedisWorkQueue(crawlUrl);
         }
 
-        // Publish work available message to distributed workers
-        publishWorkAvailable(savedSession.getId());
-        
+        // Notify all workers that new work is available
+        publishWorkNotification(savedSession.getId(), "NEW_SESSION");
+
+        log.info("Added {} seed URLs to frontier for session: {}", session.getSeedUrls().size(), savedSession.getId());
         return savedSession.getId();
     }
 
+    /**
+     * Stop crawl session with distributed notification
+     */
     public void stopCrawlSession(String sessionId) {
         log.info("Stopping crawl session: {}", sessionId);
         
@@ -144,9 +187,15 @@ public class CrawlerManager {
             session.setStatus("STOPPED");
             session.setCompletedAt(LocalDateTime.now());
             sessionRepository.save(session);
+
+            // Notify all workers to stop processing this session
+            publishSessionControl(sessionId, "STOP");
         }
     }
 
+    /**
+     * Pause crawl session
+     */
     public boolean pauseCrawlSession(String sessionId) {
         log.info("Pausing crawl session: {}", sessionId);
         
@@ -156,32 +205,15 @@ public class CrawlerManager {
             session.setPausedAt(LocalDateTime.now());
             sessionRepository.save(session);
 
-            // Clean up Redis processing keys for this session
-            Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
-            if (processingKeys != null && !processingKeys.isEmpty()) {
-                redisTemplate.delete(processingKeys);
-                log.debug("Cleaned up {} processing keys for session {}", processingKeys.size(), sessionId);
-            }
-
-            // Clean up Kafka - send a special control message to stop processing
-            try {
-                CrawlJob controlJob = CrawlJob.builder()
-                    .sessionId(sessionId)
-                    .status("PAUSE")
-                    .createdAt(LocalDateTime.now())
-                    .build();
-                String message = objectMapper.writeValueAsString(controlJob);
-                kafkaTemplate.send(crawlTasksTopic, message);
-                log.debug("Sent pause control message to Kafka for session: {}", sessionId);
-            } catch (JsonProcessingException e) {
-                log.error("Error sending pause control message to Kafka", e);
-            }
-
+            publishSessionControl(sessionId, "PAUSE");
             return true;
         }
         return false;
     }
 
+    /**
+     * Resume crawl session
+     */
     public boolean resumeCrawlSession(String sessionId) {
         log.info("Resuming crawl session: {}", sessionId);
         
@@ -191,295 +223,388 @@ public class CrawlerManager {
             session.setResumedAt(LocalDateTime.now());
             sessionRepository.save(session);
             
-            // Publish work available notification to restart crawling
-            publishWorkAvailable(sessionId);
+            publishWorkNotification(sessionId, "RESUME");
             return true;
         }
         return false;
     }
 
-    public boolean deleteCrawlSession(String sessionId) {
-        log.info("Deleting crawl session: {}", sessionId);
-        
-        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
-        if (session != null) {
-            // Delete all crawled pages for this session
-            pageRepository.deleteBySessionId(sessionId);
-            
-            // Delete all URLs for this session from MongoDB
-            crawlUrlRepository.deleteBySessionId(sessionId);
-            
-            // Clean up Redis keys
-            String queueKey = URL_QUEUE_KEY_PREFIX + sessionId;
-            String visitedKey = URL_VISITED_KEY_PREFIX + sessionId;
-            Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
-            
-            // Delete Redis keys
-            redisTemplate.delete(queueKey);
-            redisTemplate.delete(visitedKey);
-            if (processingKeys != null && !processingKeys.isEmpty()) {
-                redisTemplate.delete(processingKeys);
-            }
-            
-            // Clean up Kafka - send a special control message to stop processing
-            try {
-                CrawlJob controlJob = CrawlJob.builder()
-                    .sessionId(sessionId)
-                    .status("DELETE")
-                    .createdAt(LocalDateTime.now())
-                    .build();
-                String message = objectMapper.writeValueAsString(controlJob);
-                kafkaTemplate.send(crawlTasksTopic, message);
-                log.debug("Sent delete control message to Kafka for session: {}", sessionId);
-            } catch (JsonProcessingException e) {
-                log.error("Error sending delete control message to Kafka", e);
-            }
-            
-            // Delete the session itself
-            sessionRepository.deleteById(sessionId);
-            
-            log.info("Successfully deleted crawl session and all related data: {}", sessionId);
-            return true;
-        }
-        return false;
-    }
+    // Redis-based distributed coordination methods
 
-    @KafkaListener(topics = "${webcrawler.kafka.topics.crawl-tasks:webcrawler.tasks}")
-    public void handleCrawlTask(String message, Acknowledgment ack) {
-        try {
-            log.debug("Received crawl task: {}", message);
-            
-            CrawlJob job = objectMapper.readValue(message, CrawlJob.class);
-            
-            // Handle control messages
-            if (job.getUrl() == null) {
-                if ("WORK_AVAILABLE".equals(job.getStatus())) {
-                    log.debug("Received work available notification for session: {}", job.getSessionId());
-                    requestWork();
-                } else if ("PAUSE".equals(job.getStatus())) {
-                    log.debug("Received pause control message for session: {}", job.getSessionId());
-                    // Stop processing URLs for this session
-                    stopProcessingSession(job.getSessionId());
-                } else if ("DELETE".equals(job.getStatus())) {
-                    log.debug("Received delete control message for session: {}", job.getSessionId());
-                    // Stop processing URLs for this session
-                    stopProcessingSession(job.getSessionId());
-                }
-                ack.acknowledge();
-                return;
-            }
-            
-            // Handle actual crawl jobs with URLs
-            CrawlUrl crawlUrl = CrawlUrl.builder()
-                .url(job.getUrl())
-                .sessionId(job.getSessionId())
-                .depth(job.getDepth())
-                .priority(job.getPriority())
-                .parentUrl(job.getParentUrl())
-                .assignedTo(instanceConfig.getMachineId())
-                .assignedAt(LocalDateTime.now())
-                .status("IN_PROGRESS")
-                .build();
-
-            processCrawlJob(crawlUrl).thenRun(() -> {
-                ack.acknowledge();
-                log.debug("Acknowledged crawl task for URL: {}", job.getUrl());
-            });
-            
-        } catch (JsonProcessingException e) {
-            log.error("Error parsing crawl task message: {}", message, e);
-            ack.acknowledge(); // Acknowledge to avoid reprocessing bad messages
-        }
-    }
-
-    @Async
-    public CompletableFuture<Void> processCrawlJob(CrawlUrl crawlUrl) {
-        try {
-            log.info("Processing crawl job for URL: {}", crawlUrl.getUrl());
-
-            // Crawl the URL
-            CrawledPageEntity crawledPage = crawlerWorker.crawl(crawlUrl);
-            log.info("Crawl completed for URL: {}, status: {}", crawlUrl.getUrl(), crawledPage.getStatusCode());
-
-            // Mark URL as completed in frontier
-            if (crawledPage.getStatusCode() == 200) {
-                urlFrontier.markCompleted(crawlUrl.getUrl(), crawlUrl.getSessionId());
-                
-                log.info("Crawl successful for URL: {}, depth: {}, maxDepth: {}",
-                         crawlUrl.getUrl(), crawlUrl.getDepth(), maxDepth);
-                
-                // Extract and queue new URLs if within depth limit
-                if (crawlUrl.getDepth() < maxDepth) {
-                    log.debug("Extracting links from URL: {} at depth {}", crawlUrl.getUrl(), crawlUrl.getDepth());
-                    
-                    List<String> extractedUrls = crawlerWorker.extractLinks(
-                        crawledPage.getRawHtml(), crawlUrl.getUrl());
-                    
-                    log.debug("Extracted {} links from URL: {}", extractedUrls.size(), crawlUrl.getUrl());
-                    
-                    for (String extractedUrl : extractedUrls) {
-                        log.debug("Processing extracted URL: {}", extractedUrl);
-                        
-                        CrawlUrl newCrawlUrl = CrawlUrl.builder()
-                            .url(extractedUrl)
-                            .sessionId(crawlUrl.getSessionId())
-                            .depth(crawlUrl.getDepth() + 1)
-                            .priority(Math.max(0.1, 1.0 - (crawlUrl.getDepth() * 0.1)))
-                            .parentUrl(crawlUrl.getUrl())
-                            .status("PENDING")
-                            .discoveredAt(LocalDateTime.now())
-                            .build();
-                        
-                        urlFrontier.addUrl(newCrawlUrl);
-                        log.debug("Added new URL to frontier: {} at depth {}", extractedUrl, newCrawlUrl.getDepth());
-                    }
-                } else {
-                    log.debug("Skipping link extraction for URL: {} - depth {} >= maxDepth {}", 
-                             crawlUrl.getUrl(), crawlUrl.getDepth(), maxDepth);
-                }
-            } else {
-                urlFrontier.markFailed(crawlUrl.getUrl(), crawledPage.getErrorMessage(), crawlUrl.getSessionId());
-            }
-            
-            log.debug("Completed processing crawl job for URL: {}", crawlUrl.getUrl());
-            
-        } catch (Exception e) {
-            log.error("Error processing crawl job for URL: {}", crawlUrl.getUrl(), e);
-            urlFrontier.markFailed(crawlUrl.getUrl(), e.getMessage(), crawlUrl.getSessionId());
-        }
-        
-        return CompletableFuture.completedFuture(null);
-    }
-
-    @Scheduled(fixedDelay = 5000) // Every 5 seconds
-    public void requestWork() {
-        if (!running) {
-            log.info("CrawlerManager not running, skipping work request");
+    private void addToRedisWorkQueue(CrawlUrl crawlUrl) {
+        if (!redisAvailable) {
+            log.warn("Cannot add URL to Redis work queue - Redis not available: {}", crawlUrl.getUrl());
             return;
         }
-        
-        log.info("Requesting work from frontier...");
 
         try {
-            // Get URLs from frontier
-            List<CrawlUrl> urls = urlFrontier.getNextUrls(instanceConfig.getMachineId(), batchSize);
-            
-            if (!urls.isEmpty()) {
-                log.info("Retrieved {} URLs from frontier", urls.size());
-
-                for (CrawlUrl url : urls) {
-                    processCrawlJob(url);
-                }
-            } else {
-                log.info("No URLs available from frontier");
-            }
-            
+            String queueKey = workQueuePrefix + crawlUrl.getSessionId();
+            String crawlUrlJson = objectMapper.writeValueAsString(crawlUrl);
+            redisTemplate.opsForList().leftPush(queueKey, crawlUrlJson);
+            log.info("Master added URL to work queue: {} (queue: {})", crawlUrl.getUrl(), queueKey);
         } catch (Exception e) {
-            log.error("Error requesting work from frontier", e);
+            log.error("Error adding URL to work queue: {}", crawlUrl.getUrl(), e);
         }
     }
 
-    private void publishWorkAvailable(String sessionId) {
+    private void publishWorkNotification(String sessionId, String eventType) {
+        if (!redisAvailable) return;
+
         try {
-            CrawlJob workNotification = CrawlJob.builder()
-                .sessionId(sessionId)
-                .status("WORK_AVAILABLE")
-                .createdAt(LocalDateTime.now())
-                .build();
-            
-            String message = objectMapper.writeValueAsString(workNotification);
-            kafkaTemplate.send(crawlTasksTopic, message);
-            
-            log.debug("Published work available notification for session: {}", sessionId);
-            
-        } catch (JsonProcessingException e) {
-            log.error("Error publishing work available notification", e);
+            String message = String.format("%s:%s:%s:%s",
+                eventType, sessionId, instanceConfig.getMachineId(), LocalDateTime.now());
+            redisTemplate.convertAndSend(workNotificationChannel, message);
+            log.debug("Published work notification: {} for session: {}", eventType, sessionId);
+        } catch (Exception e) {
+            log.error("Error publishing work notification", e);
         }
     }
 
-    private void registerWorker() {
-        String workerKey = WORKER_REGISTRY_KEY;
-        String workerId = instanceConfig.getMachineId();
-        String workerInfo = String.format("{\"id\":\"%s\",\"host\":\"%s\",\"registeredAt\":\"%s\"}", 
-            workerId, instanceConfig.getAdvertisedHost(), LocalDateTime.now());
-        
-        redisTemplate.opsForSet().add(workerKey, workerInfo);
-        log.info("Registered worker: {}", workerId);
-    }
+    private void publishSessionControl(String sessionId, String action) {
+        if (!redisAvailable) return;
 
-    private void unregisterWorker() {
-        String workerKey = WORKER_REGISTRY_KEY;
-        String workerId = instanceConfig.getMachineId();
-        
-        // Remove from active workers set (simplified removal)
-        redisTemplate.opsForSet().members(workerKey).forEach(member -> {
-            if (member.toString().contains(workerId)) {
-                redisTemplate.opsForSet().remove(workerKey, member);
-            }
-        });
-        
-        log.info("Unregistered worker: {}", workerId);
-    }
-
-    private void startHeartbeat() {
-        scheduler.scheduleAtFixedRate(() -> {
-            if (running) {
-                String heartbeatKey = HEARTBEAT_KEY_PREFIX + instanceConfig.getMachineId();
-                redisTemplate.opsForValue().set(heartbeatKey, 
-                    LocalDateTime.now().toString(), 
-                    instanceConfig.getHeartbeatIntervalSeconds() * 2, 
-                    TimeUnit.SECONDS);
-            }
-        }, 0, instanceConfig.getHeartbeatIntervalSeconds(), TimeUnit.SECONDS);
-    }
-
-    public List<CrawlSessionEntity> getAllSessions() {
-        return sessionRepository.findAllByOrderByCreatedAtDesc();
-    }
-
-    public CrawlSessionEntity getSession(String sessionId) {
-        return sessionRepository.findById(sessionId).orElse(null);
-    }
-
-    public List<CrawledPageEntity> getSessionPages(String sessionId) {
-        return pageRepository.findBySessionId(sessionId);
-    }
-
-    public List<Object> getSessionPages(String sessionId, int page, int size) {
-        // This would need to be implemented with pagination
-        // For now, return all pages
-        List<CrawledPageEntity> pages = pageRepository.findBySessionId(sessionId);
-        return new ArrayList<>(pages);
-    }
-
-    public Object getSessionStats(String sessionId) {
-        CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
-        if (session == null) {
-            return null;
+        try {
+            String message = String.format("%s:%s:%s:%s",
+                action, sessionId, instanceConfig.getMachineId(), LocalDateTime.now());
+            redisTemplate.convertAndSend(sessionControlChannel, message);
+            log.debug("Published session control: {} for session: {}", action, sessionId);
+        } catch (Exception e) {
+            log.error("Error publishing session control", e);
         }
-        
-        // Get additional stats
-        long totalPages = pageRepository.countBySessionId(sessionId);
-        long successfulPages = pageRepository.countBySessionIdAndStatusCode(sessionId, 200);
-        long failedPages = totalPages - successfulPages;
-        
+    }
+
+    private void subscribeToRedisChannels() {
+        if (!redisAvailable) return;
+
+        try {
+            // Create custom message listeners with explicit method invocation
+            MessageListenerAdapter workAdapter = new MessageListenerAdapter() {
+                @Override
+                public void onMessage(org.springframework.data.redis.connection.Message message, byte[] pattern) {
+                    try {
+                        String messageBody = new String(message.getBody());
+                        handleWorkNotification(messageBody);
+                    } catch (Exception e) {
+                        log.error("Error processing work notification message", e);
+                    }
+                }
+            };
+
+            MessageListenerAdapter controlAdapter = new MessageListenerAdapter() {
+                @Override
+                public void onMessage(org.springframework.data.redis.connection.Message message, byte[] pattern) {
+                    try {
+                        String messageBody = new String(message.getBody());
+                        handleSessionControl(messageBody);
+                    } catch (Exception e) {
+                        log.error("Error processing session control message", e);
+                    }
+                }
+            };
+
+            messageListenerContainer.addMessageListener(workAdapter, new ChannelTopic(workNotificationChannel));
+            messageListenerContainer.addMessageListener(controlAdapter, new ChannelTopic(sessionControlChannel));
+
+            log.info("Subscribed to Redis channels for distributed coordination");
+        } catch (Exception e) {
+            log.error("Error subscribing to Redis channels", e);
+        }
+    }
+
+    /**
+     * Handle work notification messages from Redis pub/sub
+     */
+    public void handleWorkNotification(String message) {
+        try {
+            log.debug("Received work notification: {}", message);
+            String[] parts = message.split(":");
+            if (parts.length >= 4) {
+                String eventType = parts[0];
+                String sessionId = parts[1];
+                String fromMachineId = parts[2];
+
+                // Don't process our own messages
+                if (fromMachineId.equals(instanceConfig.getMachineId())) {
+                    return;
+                }
+
+                switch (eventType) {
+                    case "NEW_SESSION":
+                    case "NEW_URLS":
+                    case "RESUME":
+                        // As a manager, we just log that work is available
+                        // Workers will handle the actual work polling
+                        log.info("Work notification received for session: {} (event: {})", sessionId, eventType);
+                        break;
+                    default:
+                        log.debug("Unknown work notification type: {}", eventType);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error handling work notification: {}", message, e);
+        }
+    }
+
+    /**
+     * Handle session control messages from Redis pub/sub
+     */
+    public void handleSessionControl(String message) {
+        try {
+            log.debug("Received session control: {}", message);
+            String[] parts = message.split(":");
+            if (parts.length >= 4) {
+                String action = parts[0];
+                String sessionId = parts[1];
+                String fromMachineId = parts[2];
+
+                // Don't process our own messages
+                if (fromMachineId.equals(instanceConfig.getMachineId())) {
+                    return;
+                }
+
+                switch (action) {
+                    case "STOP":
+                        log.info("Received STOP command for session: {}", sessionId);
+                        // Stop processing any pending work for this session
+                        clearSessionWorkQueue(sessionId);
+                        break;
+                    case "PAUSE":
+                        log.info("Received PAUSE command for session: {}", sessionId);
+                        // Workers will check session status before processing
+                        break;
+                    case "DELETE":
+                        log.info("Received DELETE command for session: {}", sessionId);
+                        clearSessionWorkQueue(sessionId);
+                        break;
+                    default:
+                        log.debug("Unknown session control action: {}", action);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error handling session control: {}", message, e);
+        }
+    }
+
+    /**
+     * Handle worker completion reports
+     */
+    private void subscribeToWorkerReports() {
+        if (!redisAvailable) return;
+
+        try {
+            MessageListenerAdapter completionAdapter = new MessageListenerAdapter() {
+                @Override
+                public void onMessage(org.springframework.data.redis.connection.Message message, byte[] pattern) {
+                    try {
+                        String messageBody = new String(message.getBody());
+                        handleWorkerCompletion(messageBody);
+                    } catch (Exception e) {
+                        log.error("Error processing worker completion", e);
+                    }
+                }
+            };
+
+            messageListenerContainer.addMessageListener(completionAdapter, new ChannelTopic("work:completed"));
+            log.info("Master subscribed to worker completion reports");
+        } catch (Exception e) {
+            log.error("Error subscribing to worker reports", e);
+        }
+    }
+
+    /**
+     * Handle completion reports from workers
+     */
+    public void handleWorkerCompletion(String message) {
+        try {
+            log.debug("Master received worker completion: {}", message);
+            String[] parts = message.split(":");
+            if (parts.length >= 4) {
+                String status = parts[0]; // COMPLETED or FAILED
+                String sessionId = parts[1];
+                String url = parts[2];
+                String workerId = parts[4];
+
+                if ("COMPLETED".equals(status)) {
+                    int statusCode = Integer.parseInt(parts[3]);
+                    urlFrontier.markCompleted(url, sessionId);
+
+                    // If successful, we might need to extract links and add new URLs
+                    // This would be handled by checking if the worker reported extracted links
+
+                } else if ("FAILED".equals(status)) {
+                    String errorMessage = parts[3];
+                    urlFrontier.markFailed(url, errorMessage, sessionId);
+                }
+
+                log.debug("Master processed {} report from worker {} for URL: {}", status, workerId, url);
+            }
+        } catch (Exception e) {
+            log.error("Error handling worker completion: {}", message, e);
+        }
+    }
+
+    /**
+     * Clear work queue for a specific session
+     */
+    private void clearSessionWorkQueue(String sessionId) {
+        if (!redisAvailable) return;
+
+        try {
+            String queueKey = workQueuePrefix + sessionId;
+            Boolean cleared = redisTemplate.delete(queueKey);
+            log.info("Cleared work queue for session: {} (success: {})", sessionId, cleared);
+        } catch (Exception e) {
+            log.error("Error clearing work queue for session: {}", sessionId, e);
+        }
+    }
+
+    /**
+     * Delete session with Redis coordination
+     */
+    public boolean deleteCrawlSession(String sessionId) {
+        log.info("Deleting crawl session: {}", sessionId);
+
+        try {
+            CrawlSessionEntity session = sessionRepository.findById(sessionId).orElse(null);
+            if (session == null) {
+                return false;
+            }
+
+            // Notify all workers to stop processing and clear work
+            publishSessionControl(sessionId, "DELETE");
+
+            // Clear Redis work queue
+            clearSessionWorkQueue(sessionId);
+
+            // Delete from MongoDB
+            sessionRepository.deleteById(sessionId);
+            crawlUrlRepository.deleteBySessionId(sessionId);
+
+            // Clear from URL frontier
+            urlFrontier.clearSession(sessionId);
+
+            log.info("Successfully deleted session: {}", sessionId);
+            return true;
+        } catch (Exception e) {
+            log.error("Error deleting session: {}", sessionId, e);
+            return false;
+        }
+    }
+
+    /**
+     * Get active workers from Redis registry
+     */
+    public List<Map<String, Object>> getActiveWorkers() {
+        List<Map<String, Object>> workers = new ArrayList<>();
+
+        if (!redisAvailable) {
+            return workers;
+        }
+
+        try {
+            Map<Object, Object> workerRegistry = redisTemplate.opsForHash().entries(WORKER_REGISTRY_KEY);
+
+            for (Map.Entry<Object, Object> entry : workerRegistry.entrySet()) {
+                String workerId = entry.getKey().toString();
+                String workerInfo = entry.getValue().toString();
+                String[] parts = workerInfo.split(":");
+
+                if (parts.length >= 3) {
+                    Map<String, Object> worker = new HashMap<>();
+                    worker.put("workerId", workerId);
+                    worker.put("address", parts[1]);
+                    worker.put("lastSeen", parts[2]);
+
+                    // Check heartbeat
+                    String heartbeatKey = heartbeatPrefix + workerId;
+                    String lastHeartbeat = (String) redisTemplate.opsForValue().get(heartbeatKey);
+                    worker.put("lastHeartbeat", lastHeartbeat);
+                    worker.put("isActive", lastHeartbeat != null);
+
+                    workers.add(worker);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error getting active workers", e);
+        }
+
+        return workers;
+    }
+
+    /**
+     * Get session queue statistics
+     */
+    public Map<String, Object> getSessionQueueStats(String sessionId) {
         Map<String, Object> stats = new HashMap<>();
-        stats.put("session", session);
-        stats.put("totalPages", totalPages);
-        stats.put("successfulPages", successfulPages);
-        stats.put("failedPages", failedPages);
-        stats.put("successRate", totalPages > 0 ? (double) successfulPages / totalPages : 0.0);
-        
+
+        if (!redisAvailable) {
+            stats.put("redisQueueSize", 0);
+            stats.put("redisAvailable", false);
+            return stats;
+        }
+
+        try {
+            String queueKey = workQueuePrefix + sessionId;
+            Long queueSize = redisTemplate.opsForList().size(queueKey);
+            stats.put("redisQueueSize", queueSize != null ? queueSize : 0);
+            stats.put("redisAvailable", true);
+        } catch (Exception e) {
+            log.error("Error getting queue stats for session: {}", sessionId, e);
+            stats.put("redisQueueSize", 0);
+            stats.put("redisAvailable", false);
+        }
+
         return stats;
     }
 
-    private void stopProcessingSession(String sessionId) {
-        // Clean up any in-progress tasks for this session
-        Set<String> processingKeys = redisTemplate.keys(URL_PROCESSING_KEY_PREFIX + sessionId + ":*");
-        if (processingKeys != null && !processingKeys.isEmpty()) {
-            redisTemplate.delete(processingKeys);
-            log.debug("Cleaned up {} processing keys for session {}", processingKeys.size(), sessionId);
+    /**
+     * Get all crawl sessions
+     */
+    public List<CrawlSessionEntity> getAllSessions() {
+        try {
+            return sessionRepository.findAll();
+        } catch (Exception e) {
+            log.error("Error getting all sessions", e);
+            return new ArrayList<>();
         }
     }
-}
 
+    /**
+     * Get a specific crawl session
+     */
+    public CrawlSessionEntity getSession(String sessionId) {
+        try {
+            return sessionRepository.findById(sessionId).orElse(null);
+        } catch (Exception e) {
+            log.error("Error getting session: {}", sessionId, e);
+            return null;
+        }
+    }
+
+    /**
+     * Get pages for a specific session with pagination
+     */
+    public List<Object> getSessionPages(String sessionId, int page, int size) {
+        List<Object> pages = new ArrayList<>();
+        try {
+            org.springframework.data.domain.Pageable pageable =
+                org.springframework.data.domain.PageRequest.of(page, size);
+
+            List<CrawledPageEntity> crawledPages = pageRepository.findBySessionId(sessionId, pageable);
+
+            for (CrawledPageEntity crawledPage : crawledPages) {
+                Map<String, Object> pageInfo = new HashMap<>();
+                pageInfo.put("url", crawledPage.getUrl());
+                pageInfo.put("title", crawledPage.getTitle());
+                pageInfo.put("statusCode", crawledPage.getStatusCode());
+                pageInfo.put("crawledAt", crawledPage.getCrawlTime()); // Use getCrawlTime() instead of getCrawledAt()
+                pageInfo.put("contentLength", crawledPage.getContentLength());
+                pageInfo.put("errorMessage", crawledPage.getErrorMessage());
+                pages.add(pageInfo);
+            }
+        } catch (Exception e) {
+            log.error("Error getting session pages: {}", sessionId, e);
+        }
+        return pages;
+    }
+}

@@ -4,6 +4,7 @@ import com.ouroboros.webcrawler.entity.CrawlSessionEntity;
 import com.ouroboros.webcrawler.manager.CrawlerManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,6 +17,7 @@ import java.util.UUID;
 @RestController
 @CrossOrigin(origins = "*")
 @RequestMapping("/api/crawler")
+@ConditionalOnProperty(name = "webcrawler.enable.session-management", havingValue = "true", matchIfMissing = false)
 public class CrawlerController {
 
     @Autowired

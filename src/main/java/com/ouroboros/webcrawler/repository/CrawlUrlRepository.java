@@ -1,74 +1,91 @@
 package com.ouroboros.webcrawler.repository;
 
 import com.ouroboros.webcrawler.entity.CrawlUrl;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.repository.MongoRepository;
+import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
 
-import java.util.Set;
+import java.util.List;
 
+/**
+ * Repository interface for CrawlUrl entities
+ * Provides data access methods for URL frontier management
+ */
 @Repository
-public class CrawlUrlRepository {
+public interface CrawlUrlRepository extends MongoRepository<CrawlUrl, String> {
 
-    private static final Logger log = LoggerFactory.getLogger(CrawlUrlRepository.class);
+    /**
+     * Find URLs by status with pagination and ordering
+     */
+    @Query("{'status': ?0}")
+    List<CrawlUrl> findByStatusOrderByPriorityDescDiscoveredAtAsc(String status, Pageable pageable);
 
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
+    /**
+     * Find a specific URL by URL and session ID
+     */
+    CrawlUrl findByUrlAndSessionId(String url, String sessionId);
 
-    private static final String URL_QUEUE_KEY_PREFIX = "url_queue:";
-    
-    private String getQueueKey(String sessionId) {
-        return URL_QUEUE_KEY_PREFIX + sessionId;
-    }
+    /**
+     * Count URLs by session ID and status
+     */
+    int countBySessionIdAndStatus(String sessionId, String status);
 
-    public void save(CrawlUrl crawlUrl) {
-        String queueKey = getQueueKey(crawlUrl.getSessionId());
-        redisTemplate.opsForZSet().add(queueKey, crawlUrl, crawlUrl.getPriority());
-    }
+    /**
+     * Find all URLs for a specific session
+     */
+    List<CrawlUrl> findBySessionId(String sessionId);
 
-    public Set<Object> getTopUrls(String sessionId, int count) {
-        String queueKey = getQueueKey(sessionId);
-        log.debug("Getting top {} URLs from queue key: {}", count, queueKey);
-        
-        Set<Object> result = redisTemplate.opsForZSet().reverseRange(queueKey, 0, count - 1);
-        log.debug("Retrieved {} objects from Redis queue", result != null ? result.size() : 0);
-        
-        if (result != null && !result.isEmpty()) {
-            log.debug("First object type: {}", result.iterator().next().getClass().getSimpleName());
-        }
-        
-        return result;
-    }
+    /**
+     * Delete all URLs for a specific session
+     */
+    void deleteBySessionId(String sessionId);
 
-    public void remove(CrawlUrl crawlUrl) {
-        String queueKey = getQueueKey(crawlUrl.getSessionId());
-        redisTemplate.opsForZSet().remove(queueKey, crawlUrl);
-    }
+    /**
+     * Find distinct session IDs (for active sessions)
+     */
+    @Query(value = "{}", fields = "{'sessionId': 1}")
+    List<String> findDistinctSessionIds();
 
-    public long count() {
-        // For legacy compatibility, return total count across all sessions
-        Set<String> keys = redisTemplate.keys(URL_QUEUE_KEY_PREFIX + "*");
-        long totalCount = 0;
-        if (keys != null) {
-            for (String key : keys) {
-                Long count = redisTemplate.opsForZSet().count(key, 0, Double.MAX_VALUE);
-                totalCount += (count != null ? count : 0L);
-            }
-        }
-        return totalCount;
-    }
-    
-    public long count(String sessionId) {
-        String queueKey = getQueueKey(sessionId);
-        Long count = redisTemplate.opsForZSet().count(queueKey, 0, Double.MAX_VALUE);
-        return count != null ? count : 0L;
-    }
+    /**
+     * Find URLs by session ID and status
+     */
+    List<CrawlUrl> findBySessionIdAndStatus(String sessionId, String status);
 
-    public void deleteBySessionId(String sessionId) {
-        String queueKey = getQueueKey(sessionId);
-        redisTemplate.delete(queueKey);
-        log.info("Deleted all URLs for session: {}", sessionId);
-    }
+    /**
+     * Find pending URLs for a specific session ordered by priority
+     */
+    @Query("{'sessionId': ?0, 'status': 'PENDING'}")
+    List<CrawlUrl> findPendingUrlsBySessionIdOrderByPriorityDesc(String sessionId, Pageable pageable);
+
+    /**
+     * Count total URLs for a session
+     */
+    long countBySessionId(String sessionId);
+
+    /**
+     * Find URLs by status
+     */
+    List<CrawlUrl> findByStatus(String status);
+
+    /**
+     * Find URLs assigned to a specific worker
+     */
+    List<CrawlUrl> findByAssignedWorker(String workerId);
+
+    /**
+     * Find URLs by session ID and multiple statuses
+     */
+    List<CrawlUrl> findBySessionIdAndStatusIn(String sessionId, List<String> statuses);
+
+    /**
+     * Count URLs by status (across all sessions)
+     */
+    int countByStatus(String status);
+
+    /**
+     * Get distinct session IDs that have pending URLs
+     */
+    @Query(value = "{'status': 'PENDING'}", fields = "{'sessionId': 1}")
+    List<String> findDistinctSessionIdsByStatus(String status);
 }

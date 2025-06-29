@@ -30,80 +30,33 @@ services:
     networks:
       - webcrawler-network
 
-  # Zookeeper - Required for Kafka
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: webcrawler-zookeeper
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-    networks:
-      - webcrawler-network
-
-  # Kafka - Distributed task coordination
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: webcrawler-kafka
-    restart: unless-stopped
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"    # Internal port
-      - "19092:19092"  # External port
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Configure listeners for both internal and external access
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
-      # Tell clients which address to use after they connect
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://172.16.128.238:19092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    networks:
-      webcrawler-network:
-        aliases:
-          - kafka
-
-  # Redis Commander - Web UI for Redis (optional)
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: webcrawler-redis-ui
-    restart: unless-stopped
-    ports:
-      - "8082:8081"
-    environment:
-      REDIS_HOSTS: local:redis:6379
-    networks:
-      - webcrawler-network
-    depends_on:
-      - redis
-
-  # Mongo Express - Web UI for MongoDB (optional)
-  mongo-express:
+  # MongoDB Web UI (optional)
+  mongo-ui:
     image: mongo-express:latest
     container_name: webcrawler-mongo-ui
     restart: unless-stopped
     ports:
-      - "8083:8081"
+      - "8082:8081"
     environment:
-      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
       ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: pass
-    networks:
-      - webcrawler-network
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
     depends_on:
       - mongodb
+    networks:
+      - webcrawler-network
 
-networks:
-  webcrawler-network:
-    driver: bridge
+  # Redis Web UI (optional)
+  redis-ui:
+    image: redislabs/redisinsight:latest
+    container_name: webcrawler-redis-ui
+    restart: unless-stopped
+    ports:
+      - "8081:8001"
+    depends_on:
+      - redis
+    networks:
+      - webcrawler-network
 
 volumes:
   mongodb_data:
@@ -112,23 +65,7 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  kafka_data:
-    driver: local
-  zookeeper_data:
-    driver: local
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+networks:
+  webcrawler-network:
+    driver: bridge

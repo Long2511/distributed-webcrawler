@@ -4,6 +4,7 @@ import com.ouroboros.webcrawler.entity.CrawlSessionEntity;
 import com.ouroboros.webcrawler.manager.CrawlerManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,7 @@ import java.util.List;
 @RestController
 @CrossOrigin(origins = "*")
 @RequestMapping("/api/sessions")
+@ConditionalOnProperty(name = "webcrawler.enable.session-management", havingValue = "true", matchIfMissing = false)
 public class SessionController {
 
     @Autowired
@@ -84,11 +86,23 @@ public class SessionController {
 
     @GetMapping("/{sessionId}/stats")
     public ResponseEntity<Object> getSessionStats(@PathVariable String sessionId) {
-        Object stats = crawlerManager.getSessionStats(sessionId);
-        if (stats != null) {
+        try {
+            Object stats = crawlerManager.getSessionQueueStats(sessionId);
             return ResponseEntity.ok(stats);
-        } else {
-            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("Error getting session stats: {}", sessionId, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/workers")
+    public ResponseEntity<Object> getActiveWorkers() {
+        try {
+            Object workers = crawlerManager.getActiveWorkers();
+            return ResponseEntity.ok(workers);
+        } catch (Exception e) {
+            log.error("Error getting active workers", e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 }
