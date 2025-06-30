@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * URL Frontier implementation using Redis
@@ -153,9 +154,34 @@ public class URLFrontier {
                     continue; // Skip URLs already being processed
                 }
                 
-                // Mark as being processed by this machine
-                redisTemplate.opsForValue().set(processingKey, machineId);
-                
+                // Store complete task data in Redis for recovery purposes
+                try {
+                    ProcessingTaskData taskData = ProcessingTaskData.builder()
+                        .url(crawlUrl.getUrl())
+                        .sessionId(crawlUrl.getSessionId())
+                        .depth(crawlUrl.getDepth())
+                        .priority(crawlUrl.getPriority())
+                        .parentUrl(crawlUrl.getParentUrl())
+                        .assignedTo(machineId)
+                        .assignedAt(LocalDateTime.now())
+                        .originalCrawlUrl(crawlUrl)
+                        .build();
+
+                    String taskDataJson = objectMapper.writeValueAsString(taskData);
+
+                    // Store complete task data instead of just machineId
+                    redisTemplate.opsForValue().set(processingKey, taskDataJson,
+                        30, TimeUnit.MINUTES); // Set expiration for safety
+
+                    log.debug("Stored complete task data for URL: {} assigned to machine: {}",
+                            crawlUrl.getUrl(), machineId);
+
+                } catch (Exception e) {
+                    log.error("Error storing task data for URL {}: {}", crawlUrl.getUrl(), e);
+                    // Fallback to old behavior
+                    redisTemplate.opsForValue().set(processingKey, machineId);
+                }
+
                 // Remove from queue before mutating so the original entry is deleted
                 crawlUrlRepository.remove(crawlUrl);
 
@@ -200,6 +226,7 @@ public class URLFrontier {
         
         // Could requeue with lower priority or increment retry count
         // This depends on the specific retry strategy needed
+        //TODO : handle retry logic
     }
 
     /**
