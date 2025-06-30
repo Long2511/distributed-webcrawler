@@ -34,6 +34,9 @@ public class DistributedInstanceConfig {
 
     private String generateMachineId() {
         try {
+            // Get current timestamp for uniqueness across multiple instances on same machine
+            String timestamp = String.valueOf(System.currentTimeMillis());
+
             for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 if (!ni.isLoopback() && ni.isUp() && ni.getHardwareAddress() != null) {
                     byte[] mac = ni.getHardwareAddress();
@@ -44,13 +47,15 @@ public class DistributedInstanceConfig {
                             sb.append("-");
                         }
                     }
-                    return "machine-" + sb.toString();
+                    // Add timestamp to MAC-based ID for uniqueness
+                    return "machine-" + sb.toString() + "-" + timestamp;
                 }
             }
         } catch (SocketException e) {
-            // Fall back to hostname-based ID
+            // Fall back to hostname-based ID with timestamp
             return "machine-" + System.getProperty("user.name") + "-" + System.currentTimeMillis();
         }
+        // Final fallback with timestamp only
         return "machine-" + System.currentTimeMillis();
     }
 }
