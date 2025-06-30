@@ -69,6 +69,12 @@ public class CrawlerManager {
     //@Value("${webcrawler.max-depth:10}")
     private int maxDepth = 2;
 
+    // Maximum number of pages to crawl for the currently-active session (simplified single-session config)
+    private long maxPagesLimit = 1000L;
+
+    // Base priority for newly-discovered URLs (can be overridden per session)
+    private double seedPriority = 1.0;
+
     @Autowired
     private ObjectMapper objectMapper;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -107,7 +113,12 @@ public class CrawlerManager {
         
         session.setStatus("RUNNING");
         session.setStartedAt(LocalDateTime.now());
+        // Persist session
         CrawlSessionEntity savedSession = sessionRepository.save(session);
+
+        // Update manager-wide limits to match this session (simplified: one active session per manager)
+        this.maxDepth = savedSession.getMaxDepth();
+        this.maxPagesLimit = savedSession.getMaxPages();
 
         // Add seed URLs to frontier
         for (String seedUrl : session.getSeedUrls()) {
@@ -115,7 +126,7 @@ public class CrawlerManager {
                 .url(seedUrl)
                 .sessionId(savedSession.getId())
                 .depth(0)
-                .priority(1.0)
+                .priority(seedPriority)
                 .status("PENDING")
                 .discoveredAt(LocalDateTime.now())
                 .build();
@@ -216,7 +227,7 @@ public class CrawlerManager {
                             .url(extractedUrl)
                             .sessionId(crawlUrl.getSessionId())
                             .depth(crawlUrl.getDepth() + 1)
-                            .priority(Math.max(0.1, 1.0 - (crawlUrl.getDepth() * 0.1)))
+                            .priority(Math.max(0.1, seedPriority - (crawlUrl.getDepth() * 0.1)))
                             .parentUrl(crawlUrl.getUrl())
                             .status("PENDING")
                             .discoveredAt(LocalDateTime.now())

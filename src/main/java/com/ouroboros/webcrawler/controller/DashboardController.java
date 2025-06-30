@@ -13,11 +13,6 @@ public class DashboardController {
         return "dashboard";
     }
 
-    @GetMapping("/monitor")
-    public String monitor() {
-        return "monitor";
-    }
-
     @GetMapping("/sessions")
     public String sessions() {
         return "sessions";

@@ -39,6 +39,7 @@ public class CrawlerController {
             .userAgent("Ouroboros Web Crawler/1.0")
             .politenessDelay(500)
             .respectRobotsTxt(true)
+            .seedPriority(request.getSeedPriority() != null ? request.getSeedPriority() : 1.0)
             .build();
         
         String sessionId = crawlerManager.startCrawlSession(session);
@@ -85,6 +86,7 @@ public class CrawlerController {
             .userAgent("Ouroboros Web Crawler/1.0")
             .politenessDelay(500)
             .respectRobotsTxt(true)
+            .seedPriority(request.getPriority() != null ? request.getPriority() : 1.0)
             .build();
         
         String sessionId = crawlerManager.startCrawlSession(session);
@@ -100,6 +102,7 @@ public class CrawlerController {
         private Long maxPages;
         private List<String> allowedDomains;
         private List<String> disallowedUrls;
+        private Double seedPriority;
 
         // Getters and setters
         public String getName() { return name; }
@@ -114,12 +117,15 @@ public class CrawlerController {
         public void setAllowedDomains(List<String> allowedDomains) { this.allowedDomains = allowedDomains; }
         public List<String> getDisallowedUrls() { return disallowedUrls; }
         public void setDisallowedUrls(List<String> disallowedUrls) { this.disallowedUrls = disallowedUrls; }
+        public Double getSeedPriority() { return seedPriority; }
+        public void setSeedPriority(Double seedPriority) { this.seedPriority = seedPriority; }
     }
 
     public static class QuickCrawlRequest {
         private String url;
         private Integer maxDepth;
         private Long maxPages;
+        private Double priority;
 
         // Getters and setters
         public String getUrl() { return url; }
@@ -128,5 +134,7 @@ public class CrawlerController {
         public void setMaxDepth(Integer maxDepth) { this.maxDepth = maxDepth; }
         public Long getMaxPages() { return maxPages; }
         public void setMaxPages(Long maxPages) { this.maxPages = maxPages; }
+        public Double getPriority() { return priority; }
+        public void setPriority(Double priority) { this.priority = priority; }
     }
 }
