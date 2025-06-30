@@ -312,83 +312,9 @@ distributed-webcrawler/
 └── ...
 ```
 
-## Scaling and Performance
+```
+mvn clean package -DskipTests
 
-### Horizontal Scaling
-
-The system is designed for easy horizontal scaling:
-
-1. **Add Worker Nodes**
-   - Run `setup-worker.bat` on additional machines
-   - Workers automatically connect and start processing tasks
-   - No configuration changes needed on master node
-
-2. **Increase Processing Capacity**
-   - Deploy multiple worker instances per machine
-   - Configure different ports for multiple workers
-   - Load balancing handled automatically by Kafka
-
-3. **Infrastructure Scaling**
-   - **Kafka Partitions**: Increase partitions for higher throughput
-   - **Redis Clustering**: For very large URL frontiers
-   - **MongoDB Sharding**: For massive crawl data storage
-
-### Performance Optimization
-
-- **Concurrent Processing**: Configurable worker thread pools
-- **Efficient Data Structures**: Redis-based URL deduplication
-- **Batch Processing**: Grouped database operations
-- **Connection Pooling**: Optimized HTTP client configuration
-
-## Architecture Details
-
-### Master Node Architecture
-- **Central Coordination**: Manages all crawl sessions and worker coordination
-- **Infrastructure Services**: Hosts MongoDB, Redis, and Kafka in Docker containers
-- **Web Interface**: Provides management UI and REST APIs
-- **Automatic Configuration**: IP detection and service configuration
-
-### Worker Node Architecture
-- **Stateless Design**: Workers maintain no persistent state
-- **Task Processing**: Connects to master services for task retrieval
-- **Fault Tolerance**: Automatic reconnection and task retry
-- **Scalable Deployment**: Easy addition/removal of workers
-
-### Data Flow
-1. **Session Creation**: User creates crawl session via web UI
-2. **Task Distribution**: Master breaks down URLs into tasks
-3. **Worker Processing**: Workers fetch tasks from Kafka queues
-4. **Content Extraction**: Workers crawl pages and extract data
-5. **Result Storage**: Crawled data stored in MongoDB
-6. **URL Discovery**: New URLs added to Redis frontier
-7. **Progress Tracking**: Real-time updates to web dashboard
-
-### Service Communication
-- **Kafka**: Task distribution and worker coordination
-- **Redis**: URL frontier management and caching
-- **MongoDB**: Persistent data storage and session management
-- **HTTP REST**: Web UI and API communication
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For issues and questions:
-- Check the troubleshooting section above
-- Review the `KAFKA_TROUBLESHOOTING.md` guide
-- Check the `PROJECT_REVIEW.md` for architectural details
-- Create an issue in the project repository
-
----
-
-**Note**: This system is designed for educational and research purposes. Please respect robots.txt files and website terms of service when crawling.
+java -Dspring.config.location=config/worker-node-02.properties \
+     -jar target/webcrawler-1.0-SNAPSHOT.jar
+```
