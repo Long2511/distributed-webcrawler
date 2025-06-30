@@ -36,4 +36,5 @@ public class CrawlSessionEntity {
     private String userAgent;
     private int politenessDelay;
     private boolean respectRobotsTxt;
+    private double seedPriority;
 }

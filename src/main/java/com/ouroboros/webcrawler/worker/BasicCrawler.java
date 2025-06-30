@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -34,6 +35,15 @@ public class BasicCrawler implements CrawlerWorker {
     @Value("${webcrawler.politeness.respect-robots-txt:true}")
     private boolean respectRobotsTxt;
 
+    @Value("${webcrawler.max-retries:3}")
+    private int maxRetries;
+
+    @Value("${webcrawler.retry.delay.min:1000}")
+    private int retryDelayMinMs;
+
+    @Value("${webcrawler.retry.delay.max:5000}")
+    private int retryDelayMaxMs;
+
     private static final Pattern VALID_URL_PATTERN = Pattern.compile(
         "^https?://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"
     );
@@ -45,98 +55,79 @@ public class BasicCrawler implements CrawlerWorker {
 
     @Override
     public CrawledPageEntity crawl(CrawlUrl crawlUrl) {
-        long startTime = System.currentTimeMillis();
-        
-        try {
-            log.debug("Crawling URL: {}", crawlUrl.getUrl());
-            
-            // Check robots.txt if enabled
-            if (respectRobotsTxt && !isAllowedByRobots(crawlUrl.getUrl())) {
-                log.debug("URL blocked by robots.txt: {}", crawlUrl.getUrl());
+        long overallStart = System.currentTimeMillis();
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            long startTime = System.currentTimeMillis();
+            try {
+                log.debug("Attempt {} to crawl URL: {}", attempt, crawlUrl.getUrl());
+
+                // Check robots.txt if enabled (only first attempt needed)
+                if (attempt == 1 && respectRobotsTxt && !isAllowedByRobots(crawlUrl.getUrl())) {
+                    log.debug("URL blocked by robots.txt: {}", crawlUrl.getUrl());
+                    return saveFailureEntity(crawlUrl, 403, "Blocked by robots.txt", startTime);
+                }
+
+                // Apply politeness delay on every attempt
+                if (politenessDelay > 0) {
+                    Thread.sleep(politenessDelay);
+                }
+
+                // Fetch the page
+                Document doc = Jsoup.connect(crawlUrl.getUrl())
+                    .userAgent(userAgent)
+                    .timeout(30000)
+                    .followRedirects(true)
+                    .get();
+
+                // Success
+                String title = doc.title();
+                String content = doc.text();
+                String rawHtml = doc.html();
+
+                long crawlDuration = System.currentTimeMillis() - overallStart;
+
                 CrawledPageEntity entity = CrawledPageEntity.builder()
                     .url(crawlUrl.getUrl())
+                    .title(title)
+                    .content(content)
+                    .rawHtml(rawHtml)
                     .sessionId(crawlUrl.getSessionId())
-                    .statusCode(403)
-                    .errorMessage("Blocked by robots.txt")
+                    .statusCode(200)
+                    .contentType("text/html")
+                    .contentLength(content.length())
                     .crawlTime(LocalDateTime.now())
-                    .crawlDurationMs(System.currentTimeMillis() - startTime)
+                    .crawlDurationMs(crawlDuration)
                     .depth(crawlUrl.getDepth())
                     .parentUrl(crawlUrl.getParentUrl())
                     .crawlerInstanceId(crawlUrl.getAssignedTo())
                     .build();
                 pageRepository.save(entity);
                 return entity;
+
+            } catch (IOException e) {
+                log.warn("Attempt {} failed for URL {}: {}", attempt, crawlUrl.getUrl(), e.getMessage());
+
+                if (attempt < maxRetries) {
+                    int wait = ThreadLocalRandom.current().nextInt(retryDelayMinMs, retryDelayMaxMs + 1);
+                    try {
+                        Thread.sleep(wait);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return saveFailureEntity(crawlUrl, 0, "Interrupted", startTime);
+                    }
+                    // retry loop continues
+                } else {
+                    return saveFailureEntity(crawlUrl, 0, e.getMessage(), startTime);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return saveFailureEntity(crawlUrl, 0, "Interrupted", startTime);
             }
-
-            // Apply politeness delay
-            if (politenessDelay > 0) {
-                Thread.sleep(politenessDelay);
-            }
-
-            // Fetch the page
-            Document doc = Jsoup.connect(crawlUrl.getUrl())
-                .userAgent(userAgent)
-                .timeout(30000)
-                .followRedirects(true)
-                .get();
-
-            // Extract content
-            String title = doc.title();
-            String content = doc.text();
-            String rawHtml = doc.html();
-            
-            long crawlDuration = System.currentTimeMillis() - startTime;
-            
-            CrawledPageEntity entity = CrawledPageEntity.builder()
-                .url(crawlUrl.getUrl())
-                .title(title)
-                .content(content)
-                .rawHtml(rawHtml)
-                .sessionId(crawlUrl.getSessionId())
-                .statusCode(200)
-                .contentType("text/html")
-                .contentLength(content.length())
-                .crawlTime(LocalDateTime.now())
-                .crawlDurationMs(crawlDuration)
-                .depth(crawlUrl.getDepth())
-                .parentUrl(crawlUrl.getParentUrl())
-                .crawlerInstanceId(crawlUrl.getAssignedTo())
-                .build();
-            pageRepository.save(entity);
-            return entity;
-
-        } catch (IOException e) {
-            log.error("Error crawling URL: {}", crawlUrl.getUrl(), e);
-            CrawledPageEntity entity = CrawledPageEntity.builder()
-                .url(crawlUrl.getUrl())
-                .sessionId(crawlUrl.getSessionId())
-                .statusCode(0)
-                .errorMessage(e.getMessage())
-                .crawlTime(LocalDateTime.now())
-                .crawlDurationMs(System.currentTimeMillis() - startTime)
-                .depth(crawlUrl.getDepth())
-                .parentUrl(crawlUrl.getParentUrl())
-                .crawlerInstanceId(crawlUrl.getAssignedTo())
-                .build();
-            pageRepository.save(entity);
-            return entity;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Crawling interrupted for URL: {}", crawlUrl.getUrl(), e);
-            CrawledPageEntity entity = CrawledPageEntity.builder()
-                .url(crawlUrl.getUrl())
-                .sessionId(crawlUrl.getSessionId())
-                .statusCode(0)
-                .errorMessage("Interrupted")
-                .crawlTime(LocalDateTime.now())
-                .crawlDurationMs(System.currentTimeMillis() - startTime)
-                .depth(crawlUrl.getDepth())
-                .parentUrl(crawlUrl.getParentUrl())
-                .crawlerInstanceId(crawlUrl.getAssignedTo())
-                .build();
-            pageRepository.save(entity);
-            return entity;
         }
+
+        // Should never reach here
+        return saveFailureEntity(crawlUrl, 0, "Unknown error", 0);
     }
 
     @Override
@@ -220,6 +211,22 @@ public class BasicCrawler implements CrawlerWorker {
     public void shutdown() {
         log.info("BasicCrawler shutting down");
         robotsCache.clear();
+    }
+
+    private CrawledPageEntity saveFailureEntity(CrawlUrl crawlUrl, int statusCode, String errorMsg, long startTime) {
+        CrawledPageEntity entity = CrawledPageEntity.builder()
+            .url(crawlUrl.getUrl())
+            .sessionId(crawlUrl.getSessionId())
+            .statusCode(statusCode)
+            .errorMessage(errorMsg)
+            .crawlTime(LocalDateTime.now())
+            .crawlDurationMs(System.currentTimeMillis() - startTime)
+            .depth(crawlUrl.getDepth())
+            .parentUrl(crawlUrl.getParentUrl())
+            .crawlerInstanceId(crawlUrl.getAssignedTo())
+            .build();
+        pageRepository.save(entity);
+        return entity;
     }
 
     static class RobotsTxtRules {

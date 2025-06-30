@@ -4,6 +4,17 @@ A highly scalable distributed web crawler implementation with Docker-based deplo
 
 ## Overview
 
+# How to run the worker node
+
+```bash
+mvn clean package -DskipTests
+
+java -Dspring.config.location=config/worker-node-02.properties -jar target/webcrawler-1.0-SNAPSHOT.jar
+
+java -Dserver.port=8888 -Dspring.config.additional-location=config/worker-node-02.properties -jar target/webcrawler-1.0-SNAPSHOT.jar
+
+```
+
 This project is a production-ready distributed web crawler system designed for horizontal scaling across multiple machines. The system uses a master-worker architecture where the master node hosts all central services (MongoDB, Redis, Kafka) and coordinates crawling tasks, while worker nodes connect remotely to perform distributed crawling.
 
 ## Architecture
@@ -42,9 +53,7 @@ This project is a production-ready distributed web crawler system designed for h
 
 - **Comprehensive Monitoring**
   - Real-time crawl session monitoring
-  - System health dashboards
   - Database web interfaces
-  - Detailed crawl statistics
 
 - **Easy Management**
   - Web-based session control
@@ -54,7 +63,7 @@ This project is a production-ready distributed web crawler system designed for h
 
 ## Technology Stack
 
-- **Core Platform**: Java 23, Spring Boot
+- **Core Platform**: Java 17, Spring Boot
 - **Containerization**: Docker, Docker Compose
 - **Message Queue**: Apache Kafka with Zookeeper
 - **Data Storage**: MongoDB, Redis
@@ -238,29 +247,6 @@ Main configuration in `src/main/resources/application.properties`:
 - Default application settings
 - Overridden by node-specific config files
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Kafka Connection Problems**
-   - Check if Kafka is using correct external IP (should be 19092)
-   - Ensure firewall allows port 19092
-   - See `KAFKA_TROUBLESHOOTING.md` for detailed guide
-
-2. **Worker Connection Issues**
-   - Verify master IP is correctly configured
-   - Check network connectivity between machines
-   - Ensure all required ports are open
-
-3. **Docker Service Startup**
-   - Run `docker-compose ps` to check service status
-   - Use `docker-compose logs [service]` to view error logs
-   - Restart services with `docker-compose restart`
-
-4. **Application Startup**
-   - Check logs in `logs/` directory
-   - Verify Java version compatibility
-   - Ensure Maven build completed successfully
 
 ### Data Cleanup
 
@@ -275,20 +261,6 @@ docker exec webcrawler-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server l
 docker-compose down -v
 ```
 
-## Development
-
-### Building from Source
-
-```cmd
-# Build the application
-mvn clean package
-
-# Run tests
-mvn test
-
-# Generate documentation
-mvn javadoc:javadoc
-```
 
 ### Project Structure
 
@@ -312,9 +284,4 @@ distributed-webcrawler/
 └── ...
 ```
 
-```
-mvn clean package -DskipTests
 
-java -Dspring.config.location=config/worker-node-02.properties \
-     -jar target/webcrawler-1.0-SNAPSHOT.jar
-```
